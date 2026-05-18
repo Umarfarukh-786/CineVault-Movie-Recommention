@@ -4,7 +4,7 @@ import streamlit as st
 # =============================
 # CONFIG
 # =============================
-API_BASE = "https://cinevault-movie-recommention-1.onrender.com/" or "https://movie-rec-466x.onrender.com"
+API_BASE = API_BASE = "https://cinevault-movie-recommention-1.onrender.com"
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
 st.set_page_config(page_title="CineVault", page_icon="🎬", layout="wide")
