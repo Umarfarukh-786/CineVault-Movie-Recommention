@@ -4,10 +4,22 @@ import streamlit as st
 # =============================
 # CONFIG
 # =============================
-API_BASE = API_BASE = "https://cinevault-movie-recommention-1.onrender.com"
+API_BASE = "https://cinevault-movie-recommention-1.onrender.com"
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
 st.set_page_config(page_title="CineVault", page_icon="🎬", layout="wide")
+
+# =============================
+# STATE + SESSION INITIALIZATION
+# =============================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "view" not in st.session_state:
+    st.session_state.view = "home"
+if "selected_tmdb_id" not in st.session_state:
+    st.session_state.selected_tmdb_id = None
 
 # =============================
 # CINEMATIC STYLES
@@ -21,17 +33,17 @@ st.markdown(
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --gold:    #c9a84c;
-  --gold2:   #f5d98b;
-  --red:     #b01a1a;
-  --red2:    #e52b2b;
-  --bg:      #080808;
-  --surface: #101010;
-  --surf2:   #161616;
-  --border:  rgba(201,168,76,0.18);
-  --text:    #e8e0d0;
-  --muted:   #7a7060;
-  --radius:  14px;
+  --gold:     #c9a84c;
+  --gold2:    #f5d98b;
+  --red:      #b01a1a;
+  --red2:     #e52b2b;
+  --bg:       #080808;
+  --surface:  #101010;
+  --surf2:    #161616;
+  --border:   rgba(201,168,76,0.18);
+  --text:     #e8e0d0;
+  --muted:    #7a7060;
+  --radius:   14px;
 }
 
 /* ── APP SHELL ── */
@@ -105,7 +117,8 @@ st.markdown(
   filter: drop-shadow(0 0 28px rgba(201,168,76,0.45));
   animation: logoGlow 4s ease-in-out infinite alternate;
   transition: all 0.35s ease;
- cursor: pointer;
+  cursor: pointer;
+}
 .cinevault-logo:hover {
   transform: scale(1.04);
   filter:
@@ -216,7 +229,7 @@ hr { border-color: var(--border) !important; }
 }
 .section-label::before { content: ''; display: block; width: 4px; height: 1.2em; background: var(--gold); border-radius: 2px; }
 
-/* ── MOVIE CARD (3-D tilt, gloss, glow) ── */
+/* ── MOVIE CARD ── */
 .movie-card-wrap {
   perspective: 900px;
   margin-bottom: 0.5rem;
@@ -239,7 +252,6 @@ hr { border-color: var(--border) !important; }
     inset 0 0 30px rgba(201,168,76,0.06);
 }
 
-/* glossy highlight */
 .movie-card::before {
   content: '';
   position: absolute;
@@ -259,9 +271,7 @@ hr { border-color: var(--border) !important; }
 }
 .movie-card:hover img { filter: brightness(1.08) saturate(1.1); }
 
-.movie-card-body {
-  padding: 8px 10px 10px;
-}
+.movie-card-body { padding: 8px 10px 10px; }
 .movie-card-title {
   font-family: 'Barlow', sans-serif;
   font-size: 0.88rem;
@@ -284,7 +294,6 @@ hr { border-color: var(--border) !important; }
   margin-bottom: 6px;
 }
 
-/* no-poster placeholder */
 .no-poster {
   background: linear-gradient(135deg, #1a1a1a, #0d0d0d);
   display: flex;
@@ -294,7 +303,6 @@ hr { border-color: var(--border) !important; }
   height: 220px;
 }
 
-/* ── BADGE ribbon ── */
 .new-badge {
   position: absolute;
   top: 10px; right: 10px;
@@ -336,12 +344,7 @@ hr { border-color: var(--border) !important; }
   line-height: 1.05;
   text-shadow: 0 2px 20px rgba(0,0,0,0.8);
 }
-.detail-meta {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin: 0.8rem 0;
-}
+.detail-meta { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.8rem 0; }
 .meta-chip {
   background: rgba(201,168,76,0.12);
   border: 1px solid rgba(201,168,76,0.25);
@@ -390,9 +393,7 @@ hr { border-color: var(--border) !important; }
 }
 
 /* ── POSTER ── */
-.poster-3d-wrap {
-  perspective: 800px;
-}
+.poster-3d-wrap { perspective: 800px; }
 .poster-3d {
   border-radius: 16px;
   overflow: hidden;
@@ -404,9 +405,7 @@ hr { border-color: var(--border) !important; }
   transform: rotateY(4deg) rotateX(-2deg);
   transition: transform 0.4s;
 }
-.poster-3d:hover {
-  transform: rotateY(-2deg) rotateX(2deg) scale(1.02);
-}
+.poster-3d:hover { transform: rotateY(-2deg) rotateX(2deg) scale(1.02); }
 .poster-3d img { width: 100%; display: block; }
 
 /* ── SCROLLBAR ── */
@@ -415,14 +414,9 @@ hr { border-color: var(--border) !important; }
 ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--gold); }
 
-/* ── HEADINGS override ── */
 h1, h2, h3 { color: var(--text) !important; }
-
-/* ── STREAMLIT WIDGETS text ── */
 .stMarkdown, .stMarkdown p { color: var(--text); }
 p { color: var(--text); }
-
-/* ── INFO / WARNING boxes ── */
 .stAlert { background: rgba(255,255,255,0.04) !important; border-color: var(--border) !important; color: var(--text) !important; }
 
 /* ── SIDEBAR MENU TITLE ── */
@@ -434,22 +428,24 @@ p { color: var(--text); }
   margin-bottom: 0.3rem;
 }
 .sidebar-rule { height: 1px; background: var(--border); margin: 0.6rem 0 1rem; }
-
-/* ── CATEGORY TABS (selectbox row) ── */
 .stSelectbox > div { color: var(--text) !important; }
+
+/* ── LOGIN GATE CENTERED PANEL ── */
+.auth-container {
+  max-width: 450px;
+  margin: 2rem auto;
+  padding: 2.5rem;
+  background: linear-gradient(135deg, #121212, #0d0d0d);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 30px 70px rgba(0,0,0,0.9), 0 0 40px rgba(176,26,26,0.05);
+}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# =============================
-# STATE + ROUTING
-# =============================
-if "view" not in st.session_state:
-    st.session_state.view = "home"
-if "selected_tmdb_id" not in st.session_state:
-    st.session_state.selected_tmdb_id = None
-
+# Query parameters routing
 qp_view = st.query_params.get("view")
 qp_id   = st.query_params.get("id")
 if qp_view in ("home", "details"):
@@ -605,227 +601,239 @@ def parse_tmdb_search_to_cards(data, keyword: str, limit: int = 24):
     return suggestions, cards
 
 
-# =============================
-# SIDEBAR
-# =============================
-with st.sidebar:
-    st.markdown("<div class='sidebar-title'>🎬 CineVault</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-rule'></div>",              unsafe_allow_html=True)
+# ==========================================================
+# VIEW FUNCTION: AUTHENTICATION GATEWAY
+# ==========================================================
+def show_auth_page():
+    # Centered design layout wrapping the elements inside our custom container
+    st.markdown("<div class='auth-container'>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align:center;font-family:\"Bebas Neue\";letter-spacing:2px;color:var(--gold);'>ACCOUNT PORTAL</h2>", unsafe_allow_html=True)
+    
+    tabs = st.tabs(["Login", "Sign Up"])
+    
+    with tabs[0]:
+        st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
+        login_user = st.text_input("USERNAME", key="login_user")
+        login_pass = st.text_input("PASSWORD", type="password", key="login_pass")
+        
+        if st.button("SIGN IN", type="primary", key="btn_login_submit"):
+            if login_user.strip() and login_pass.strip():
+                try:
+                    response = requests.post(f"{API_BASE}/login", json={"username": login_user.strip(), "password": login_pass.strip()})
+                    if response.status_code == 200:
+                        st.session_state.logged_in = True
+                        st.session_state.username = login_user.strip()
+                        st.success("Access Granted. Loading the vault...")
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials. Please try again.")
+                except Exception as e:
+                    st.error(f"Backend offline or unreachable: {e}")
+            else:
+                st.warning("Please fill out all credentials.")
 
-    if st.button("🏠 Home"):
-        goto_home()
+    with tabs[1]:
+        st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
+        signup_user = st.text_input("CHOOSE USERNAME", key="signup_user")
+        signup_pass = st.text_input("CHOOSE PASSWORD", type="password", key="signup_pass")
+        
+        if st.button("CREATE ACCOUNT", key="btn_signup_submit"):
+            if signup_user.strip() and signup_pass.strip():
+                try:
+                    response = requests.post(f"{API_BASE}/signup", json={"username": signup_user.strip(), "password": signup_pass.strip()})
+                    if response.status_code == 200:
+                        st.success("Profile created! Please switch to the Login tab.")
+                    else:
+                        st.error(response.json().get("detail", "Registration rejected."))
+                except Exception as e:
+                    st.error(f"Backend connectivity failure: {e}")
+            else:
+                st.warning("All input fields are required.")
+                
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown(
-        "<p style='color:#7a7060;font-size:0.72rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:6px;'>Home Feed</p>",
-        unsafe_allow_html=True,
-    )
-    home_category = st.selectbox(
-        "Category",
-        ["trending", "popular", "top_rated", "now_playing", "upcoming"],
-        index=0,
-        label_visibility="collapsed",
-    )
-    st.markdown(
-        "<p style='color:#7a7060;font-size:0.72rem;letter-spacing:0.15em;text-transform:uppercase;margin:12px 0 6px;'>Columns</p>",
-        unsafe_allow_html=True,
-    )
-    grid_cols = st.slider("Grid columns", 4, 8, 6, label_visibility="collapsed")
-
-    st.markdown(
-        """
-        <div style='position:absolute;bottom:24px;left:0;right:0;text-align:center;'>
-          <p style='color:#2a2a2a;font-size:0.65rem;letter-spacing:0.2em;'>CINEVAULT © 2025</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-# =============================
-# CINEMATIC HERO HEADER
-# =============================
-st.markdown(
-    """
-    <div class='cinevault-hero'>
-      <a href='/?view=home' style='text-decoration:none;'>
-    <div class='cinevault-logo'>CineVault</div>
-    </a>
-      <div class='cinevault-tagline'>Discover movies beyond imagination.</div>
-      <div class='cinevault-rule'>
-        <span></span><em>✦</em><span></span>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.divider()
 
 # ==========================================================
-# VIEW: HOME
+# MAIN ROUTING LOGIC BLOCK
 # ==========================================================
-if st.session_state.view == "home":
+if not st.session_state.logged_in:
+    show_auth_page()
+else:
+    # =============================
+    # SIDEBAR PROFILE + ENGINE CONTROLS
+    # =============================
+    with st.sidebar:
+        st.markdown(f"<p style='color:var(--text);font-size:0.9rem;'>User: <b>{st.session_state.username}</b></p>", unsafe_allow_html=True)
+        if st.button("🔒 Logout", key="btn_logout"):
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.rerun()
+            
+        st.markdown("<div class='sidebar-rule'></div>", unsafe_allow_html=True)
 
-    col_search, _, _ = st.columns([2, 1, 1])
-    with col_search:
-        typed = st.text_input(
-            "SEARCH",
-            placeholder="Search by title — Inception, Dune, The Godfather…",
-            label_visibility="visible",
+    # ==========================================================
+    # ENGINE CORE: VIEW HOME
+    # ==========================================================
+    if st.session_state.view == "home":
+        col_search, _, _ = st.columns([2, 1, 1])
+        with col_search:
+            typed = st.text_input(
+                "SEARCH",
+                placeholder="Search by title — Inception, Dune, The Godfather…",
+                label_visibility="visible",
+            )
+
+        st.divider()
+
+        # ── SEARCH MODE ──
+        if typed.strip():
+            if len(typed.strip()) < 2:
+                st.caption("Type at least 2 characters for suggestions.")
+            else:
+                with st.spinner("Searching the vault…"):
+                    data, err = api_get_json("/tmdb/search", params={"query": typed.strip()})
+
+                if err or data is None:
+                    st.error(f"Search failed: {err}")
+                else:
+                    suggestions, cards = parse_tmdb_search_to_cards(data, typed.strip(), limit=24)
+
+                    if suggestions:
+                        labels   = ["— Select a movie —"] + [s[0] for s in suggestions]
+                        selected = st.selectbox("Suggestions", labels, index=0, label_visibility="collapsed")
+                        if selected != "— Select a movie —":
+                            label_to_id = {s[0]: s[1] for s in suggestions}
+                            goto_details(label_to_id[selected])
+                    else:
+                        st.info("No suggestions found. Try another keyword.")
+
+                    st.markdown(
+                        "<div class='section-label'>Search Results</div>",
+                        unsafe_allow_html=True,
+                    )
+                    poster_grid(cards, cols=grid_cols, key_prefix="search_results")
+
+            st.stop()
+
+        # ── HOME FEED ──
+        cat_label = home_category.replace("_", " ").title()
+        st.markdown(
+            f"<div class='section-label'>{cat_label}</div>",
+            unsafe_allow_html=True,
         )
 
-    st.divider()
+        with st.spinner("Loading the vault…"):
+            home_cards, err = api_get_json("/home", params={"category": home_category, "limit": 24})
 
-    # ── SEARCH MODE ──
-    if typed.strip():
-        if len(typed.strip()) < 2:
-            st.caption("Type at least 2 characters for suggestions.")
-        else:
-            with st.spinner("Searching the vault…"):
-                data, err = api_get_json("/tmdb/search", params={"query": typed.strip()})
+        if err or not home_cards:
+            st.error(f"Home feed failed: {err or 'Unknown error'}")
+            st.stop()
 
-            if err or data is None:
-                st.error(f"Search failed: {err}")
+        poster_grid(home_cards, cols=grid_cols, key_prefix="home_feed")
+
+    # ==========================================================
+    # ENGINE CORE: VIEW DETAILS
+    # ==========================================================
+    elif st.session_state.view == "details":
+        tmdb_id = st.session_state.selected_tmdb_id
+        if not tmdb_id:
+            st.warning("No movie selected.")
+            if st.button("← Back"):
+                goto_home()
+            st.stop()
+
+        # Back button
+        col_back, _ = st.columns([1, 5])
+        with col_back:
+            if st.button("← Back"):
+                goto_home()
+
+        # Load details
+        with st.spinner("Loading…"):
+            data, err = api_get_json(f"/movie/id/{tmdb_id}")
+
+        if err or not data:
+            st.error(f"Could not load details: {err or 'Unknown error'}")
+            st.stop()
+
+        # ── BACKDROP ──
+        if data.get("backdrop_url"):
+            st.markdown("<div class='backdrop-wrap'>", unsafe_allow_html=True)
+            st.image(data["backdrop_url"], use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── POSTER + DETAILS ──
+        left, right = st.columns([1, 2.5], gap="large")
+
+        with left:
+            if data.get("poster_url"):
+                st.markdown("<div class='poster-3d-wrap'><div class='poster-3d'>", unsafe_allow_html=True)
+                st.image(data["poster_url"], use_container_width=True)
+                st.markdown("</div></div>", unsafe_allow_html=True)
             else:
-                suggestions, cards = parse_tmdb_search_to_cards(data, typed.strip(), limit=24)
+                st.markdown("<div class='no-poster' style='height:360px;border-radius:16px;'>🎬</div>", unsafe_allow_html=True)
 
-                if suggestions:
-                    labels   = ["— Select a movie —"] + [s[0] for s in suggestions]
-                    selected = st.selectbox("Suggestions", labels, index=0, label_visibility="collapsed")
-                    if selected != "— Select a movie —":
-                        label_to_id = {s[0]: s[1] for s in suggestions}
-                        goto_details(label_to_id[selected])
-                else:
-                    st.info("No suggestions found. Try another keyword.")
+        with right:
+            st.markdown("<div class='detail-card'>", unsafe_allow_html=True)
 
-                st.markdown(
-                    "<div class='section-label'>Search Results</div>",
-                    unsafe_allow_html=True,
+            # Title
+            st.markdown(f"<div class='detail-title'>{data.get('title','')}</div>", unsafe_allow_html=True)
+
+            # Meta chips
+            release = (data.get("release_date") or "-")[:4]
+            genres  = [g["name"] for g in data.get("genres", [])]
+            rating  = data.get("vote_average")
+
+            chips = ""
+            if release and release != "-":
+                chips += f"<span class='meta-chip'>{release}</span>"
+            if rating:
+                chips += f"<span class='meta-chip red'>★ {rating}</span>"
+            for g in genres:
+                chips += f"<span class='meta-chip'>{g}</span>"
+
+            st.markdown(f"<div class='detail-meta'>{chips}</div>", unsafe_allow_html=True)
+            st.markdown("<div class='detail-divider'></div>", unsafe_allow_html=True)
+
+            # Overview
+            overview = data.get("overview") or "No overview available."
+            st.markdown(f"<div class='detail-overview'>{overview}</div>", unsafe_allow_html=True)
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── RECOMMENDATIONS ──
+        title = (data.get("title") or "").strip()
+        if title:
+            with st.spinner("Finding similar films…"):
+                bundle, err2 = api_get_json(
+                    "/movie/search",
+                    params={"query": title, "tfidf_top_n": 12, "genre_limit": 12},
                 )
-                poster_grid(cards, cols=grid_cols, key_prefix="search_results")
 
-        st.stop()
+            if not err2 and bundle:
+                st.markdown("<div class='section-label'>Similar Films</div>", unsafe_allow_html=True)
+                poster_grid(
+                    to_cards_from_tfidf_items(bundle.get("tfidf_recommendations")),
+                    cols=grid_cols,
+                    key_prefix="details_tfidf",
+                )
 
-    # ── HOME FEED ──
-    cat_label = home_category.replace("_", " ").title()
-    st.markdown(
-        f"<div class='section-label'>{cat_label}</div>",
-        unsafe_allow_html=True,
-    )
-
-    with st.spinner("Loading the vault…"):
-        home_cards, err = api_get_json("/home", params={"category": home_category, "limit": 24})
-
-    if err or not home_cards:
-        st.error(f"Home feed failed: {err or 'Unknown error'}")
-        st.stop()
-
-    poster_grid(home_cards, cols=grid_cols, key_prefix="home_feed")
-
-
-# ==========================================================
-# VIEW: DETAILS
-# ==========================================================
-elif st.session_state.view == "details":
-    tmdb_id = st.session_state.selected_tmdb_id
-    if not tmdb_id:
-        st.warning("No movie selected.")
-        if st.button("← Back"):
-            goto_home()
-        st.stop()
-
-    # Back button
-    col_back, _ = st.columns([1, 5])
-    with col_back:
-        if st.button("← Back"):
-            goto_home()
-
-    # Load details
-    with st.spinner("Loading…"):
-        data, err = api_get_json(f"/movie/id/{tmdb_id}")
-
-    if err or not data:
-        st.error(f"Could not load details: {err or 'Unknown error'}")
-        st.stop()
-
-    # ── BACKDROP ──
-    if data.get("backdrop_url"):
-        st.markdown("<div class='backdrop-wrap'>", unsafe_allow_html=True)
-        st.image(data["backdrop_url"], use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── POSTER + DETAILS ──
-    left, right = st.columns([1, 2.5], gap="large")
-
-    with left:
-        if data.get("poster_url"):
-            st.markdown("<div class='poster-3d-wrap'><div class='poster-3d'>", unsafe_allow_html=True)
-            st.image(data["poster_url"], use_container_width=True)
-            st.markdown("</div></div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div class='no-poster' style='height:360px;border-radius:16px;'>🎬</div>", unsafe_allow_html=True)
-
-    with right:
-        st.markdown("<div class='detail-card'>", unsafe_allow_html=True)
-
-        # Title
-        st.markdown(f"<div class='detail-title'>{data.get('title','')}</div>", unsafe_allow_html=True)
-
-        # Meta chips
-        release = (data.get("release_date") or "-")[:4]
-        genres  = [g["name"] for g in data.get("genres", [])]
-        rating  = data.get("vote_average")
-
-        chips = ""
-        if release and release != "-":
-            chips += f"<span class='meta-chip'>{release}</span>"
-        if rating:
-            chips += f"<span class='meta-chip red'>★ {rating}</span>"
-        for g in genres:
-            chips += f"<span class='meta-chip'>{g}</span>"
-
-        st.markdown(f"<div class='detail-meta'>{chips}</div>", unsafe_allow_html=True)
-        st.markdown("<div class='detail-divider'></div>", unsafe_allow_html=True)
-
-        # Overview
-        overview = data.get("overview") or "No overview available."
-        st.markdown(f"<div class='detail-overview'>{overview}</div>", unsafe_allow_html=True)
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.divider()
-
-    # ── RECOMMENDATIONS ──
-    title = (data.get("title") or "").strip()
-    if title:
-        with st.spinner("Finding similar films…"):
-            bundle, err2 = api_get_json(
-                "/movie/search",
-                params={"query": title, "tfidf_top_n": 12, "genre_limit": 12},
-            )
-
-        if not err2 and bundle:
-            st.markdown("<div class='section-label'>Similar Films</div>", unsafe_allow_html=True)
-            poster_grid(
-                to_cards_from_tfidf_items(bundle.get("tfidf_recommendations")),
-                cols=grid_cols,
-                key_prefix="details_tfidf",
-            )
-
-            st.markdown("<div class='section-label'>More Like This</div>", unsafe_allow_html=True)
-            poster_grid(
-                bundle.get("genre_recommendations", []),
-                cols=grid_cols,
-                key_prefix="details_genre",
-            )
-        else:
-            st.info("Showing Genre recommendations (fallback).")
-            with st.spinner("Loading fallback…"):
-                genre_only, err3 = api_get_json("/recommend/genre", params={"tmdb_id": tmdb_id, "limit": 18})
-            if not err3 and genre_only:
-                st.markdown("<div class='section-label'>You May Also Like</div>", unsafe_allow_html=True)
-                poster_grid(genre_only, cols=grid_cols, key_prefix="details_genre_fallback")
+                st.markdown("<div class='section-label'>More Like This</div>", unsafe_allow_html=True)
+                poster_grid(
+                    bundle.get("genre_recommendations", []),
+                    cols=grid_cols,
+                    key_prefix="details_genre",
+                )
             else:
-                st.warning("No recommendations available right now.")
-    else:
-        st.warning("No title available to compute recommendations.")
+                st.info("Showing Genre recommendations (fallback).")
+                with st.spinner("Loading fallback…"):
+                    genre_only, err3 = api_get_json("/recommend/genre", params={"tmdb_id": tmdb_id, "limit": 18})
+                if not err3 and genre_only:
+                    st.markdown("<div class='section-label'>You May Also Like</div>", unsafe_allow_html=True)
+                    poster_grid(genre_only, cols=grid_cols, key_prefix="details_genre_fallback")
+                else:
+                    st.warning("No recommendations available right now.")
+        else:
+            st.warning("No title available to compute recommendations.")
