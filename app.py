@@ -5,7 +5,7 @@ from main import get_movie_trailer_id
 # CONFIG
 # =============================
 import os
-API_BASE = os.environ.get("BACKEND_API_URL", "http://127.0.0.1:8000")
+API_BASE = os.environ.get("BACKEND_API_URL", "https://cinevault-movie-recommention.onrender.com")
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
 st.set_page_config(page_title="CineVault", page_icon="🎬", layout="wide")
