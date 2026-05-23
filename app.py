@@ -1,10 +1,11 @@
 import requests
 import streamlit as st
-
+from main import get_movie_trailer_id
 # =============================
 # CONFIG
 # =============================
-API_BASE = "https://cinevault-movie-recommention-1.onrender.com"
+import os
+API_BASE = os.environ.get("BACKEND_API_URL", "http://127.0.0.1:8000")
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
 st.set_page_config(page_title="CineVault", page_icon="🎬", layout="wide")
@@ -474,7 +475,7 @@ def goto_details(tmdb_id: int):
 @st.cache_data(ttl=30)
 def api_get_json(path: str, params: dict | None = None):
     try:
-        r = requests.get(f"{API_BASE}{path}", params=params, timeout=25)
+        r = requests.get(f"{API_BASE}{path}", params=params, timeout=65)
         if r.status_code >= 400:
             return None, f"HTTP {r.status_code}: {r.text[:300]}"
         return r.json(), None
@@ -852,8 +853,20 @@ else:
             st.markdown("<div class='detail-divider'></div>", unsafe_allow_html=True)
 
             # Overview
+            # Overview
             overview = data.get("overview") or "No overview available."
             st.markdown(f"<div class='detail-overview'>{overview}</div>", unsafe_allow_html=True)
+            
+            # ── TRAILER ADDITION ──
+            if title:
+                with st.spinner("Fetching trailer..."):
+                    video_id = get_movie_trailer_id(title)
+                
+                if video_id:
+                    st.markdown("<div class='detail-divider'></div>", unsafe_allow_html=True)
+                    st.markdown("<p style='color:var(--gold); font-family:\"Bebas Neue\"; font-size:1.3rem; letter-spacing:1px;'>OFFICIAL TRAILER</p>", unsafe_allow_html=True)
+                    st.video(f"https://www.youtube.com/watch?v={video_id}")
+            # ──────────────────────
 
             st.markdown("</div>", unsafe_allow_html=True)
 

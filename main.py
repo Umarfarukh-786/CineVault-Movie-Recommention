@@ -580,3 +580,35 @@ async def search_bundle(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
+
+import os
+from googleapiclient.discovery import build
+
+def get_movie_trailer_id(movie_title):
+    """
+    Searches YouTube for the movie trailer using the project API key.
+    """
+    api_key = os.environ.get('YOUTUBE_API_KEY')
+    if not api_key:
+        print("YouTube API Key missing from environment configurations.")
+        return None
+
+    try:
+        youtube = build('youtube', 'v3', developerKey=api_key)
+        search_query = f"{movie_title} official trailer"
+        
+        request = youtube.search().list(
+            q=search_query,
+            part='id,snippet',
+            maxResults=1,
+            type='video'
+        )
+        response = request.execute()
+        
+        if response['items']:
+            return response['items'][0]['id']['videoId']
+        return None
+    except Exception as e:
+        print(f"Error fetching trailer link: {e}")
+        return None
