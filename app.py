@@ -52,7 +52,7 @@ st.markdown(
   background: var(--bg) !important;
   background-image:
     radial-gradient(ellipse 80% 40% at 50% 0%,   rgba(176,26,26,0.13) 0%, transparent 70%),
-    radial-gradient(ellipse 60% 30% at 80% 80%,  rgba(201,168,76,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 30% at 80% 80%,   rgba(201,168,76,0.07) 0%, transparent 60%),
     repeating-linear-gradient(
       0deg,
       transparent,
@@ -853,10 +853,12 @@ else:
             st.markdown("<div class='detail-divider'></div>", unsafe_allow_html=True)
 
             # Overview
-            # Overview
             overview = data.get("overview") or "No overview available."
             st.markdown(f"<div class='detail-overview'>{overview}</div>", unsafe_allow_html=True)
             
+            # Define variable ahead of target block checks to prevent NameError mapping anomalies
+            title = (data.get("title") or "").strip()
+
             # ── TRAILER ADDITION ──
             if title:
                 with st.spinner("Fetching trailer..."):
@@ -873,7 +875,6 @@ else:
         st.divider()
 
         # ── RECOMMENDATIONS ──
-        title = (data.get("title") or "").strip()
         if title:
             with st.spinner("Finding similar films…"):
                 bundle, err2 = api_get_json(
