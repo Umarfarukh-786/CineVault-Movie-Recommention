@@ -1,14 +1,16 @@
 import os
 import pickle
 from typing import Optional, List, Dict, Any, Tuple
+import pymysql
+from urllib.parse import urlparse, unquote
+import bcrypt
 
 import numpy as np
 import pandas as pd
 import httpx
-import bcrypt
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 
 
@@ -17,12 +19,16 @@ from dotenv import load_dotenv
 # =========================
 load_dotenv()
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG_500 = "https://image.tmdb.org/t/p/w500"
 
 if not TMDB_API_KEY:
     raise RuntimeError("TMDB_API_KEY missing. Put it in .env as TMDB_API_KEY=xxxx")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL missing. Put it in .env as DATABASE_URL=mysql+pymysql://...")
 
 
 # =========================
@@ -40,9 +46,72 @@ app.add_middleware(
 
 
 # =========================
-# IN-MEMORY USER DATABASE
+# DATABASE SETUP (MYSQL)
 # =========================
-users_db: Dict[str, str] = {}
+def get_base_connection():
+    """Connects directly to the local/remote MySQL server to manage structural databases."""
+    url = urlparse(DATABASE_URL)
+    port = url.port if url.port else 3306
+    password = unquote(url.password) if url.password else ""
+    
+    return pymysql.connect(
+        host=url.hostname,
+        user=url.username,
+        password=password,
+        port=port
+    )
+
+
+def get_db_connection():
+    """Establishes a connection to your dedicated app workspace database storage."""
+    url = urlparse(DATABASE_URL)
+    port = url.port if url.port else 3306
+    password = unquote(url.password) if url.password else ""
+    db_name = url.path.lstrip('/')
+    
+    return pymysql.connect(
+        host=url.hostname,
+        user=url.username,
+        password=password,
+        database=db_name,
+        port=port,
+        cursorclass=pymysql.cursors.DictCursor
+    )
+
+
+def init_db():
+    """Verifies relational catalogs match, mapping structural spaces automatically on boot."""
+    # Step A: Validate structural catalog exists or build it
+    base_conn = get_base_connection()
+    try:
+        with base_conn.cursor() as cursor:
+            url = urlparse(DATABASE_URL)
+            db_name = url.path.lstrip('/')
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name};")
+        base_conn.commit()
+    finally:
+        base_conn.close()
+
+    # Step B: Build our updated table structure with email support
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(255) UNIQUE NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# Initialize MySQL Schema on startup
+init_db()
 
 
 # =========================
@@ -66,7 +135,13 @@ TITLE_TO_IDX: Optional[Dict[str, int]] = None
 # =========================
 # MODELS
 # =========================
-class UserCredentials(BaseModel):
+class SignupCredentials(BaseModel):
+    username: str
+    email: EmailStr  # Automatically enforces standard formatting (e.g., user@example.com)
+    password: str
+
+
+class LoginCredentials(BaseModel):
     username: str
     password: str
 
@@ -316,20 +391,63 @@ def health():
 
 # ---------- AUTHENTICATION ROUTES ----------
 @app.post("/signup")
-def signup(user: UserCredentials):
-    if user.username in users_db:
-        raise HTTPException(status_code=400, detail="Username already exists!")
-    
-    users_db[user.username] = hash_password(user.password)
+def signup(user: SignupCredentials):
+    username = user.username.strip()
+    email = user.email.strip()
+    password = user.password.strip()
+
+    if not username or not email or not password:
+        raise HTTPException(status_code=400, detail="All signup fields are required.")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # Check unique username constraint match
+            cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Username already exists!")
+            
+            # Check unique email constraint match
+            cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="An account with this email already exists!")
+
+            # Write secure registration record to local MySQL tables
+            hashed = hash_password(password)
+            cursor.execute(
+                "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)",
+                (username, email, hashed)
+            )
+            conn.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database execution failure: {e}")
+    finally:
+        conn.close()
+
     return {"message": "User registered successfully!"}
 
 
 @app.post("/login")
-def login(user: UserCredentials):
-    if user.username not in users_db or not verify_password(user.password, users_db[user.username]):
+def login(user: LoginCredentials):
+    username = user.username.strip()
+    password = user.password.strip()
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT password_hash FROM users WHERE username = %s", (username,))
+            row = cursor.fetchone()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failure: {e}")
+    finally:
+        conn.close()
+
+    if not row or not verify_password(password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    
-    return {"message": "Login successful", "username": user.username}
+
+    return {"message": "Login successful", "username": username}
 
 
 # ---------- HOME FEED (TMDB) ----------

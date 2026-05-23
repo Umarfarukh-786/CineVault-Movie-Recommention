@@ -627,21 +627,33 @@ def show_auth_page():
 
     with tabs[1]:
         st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
-        signup_user = st.text_input("CHOOSE USERNAME", key="signup_user")
-        signup_pass = st.text_input("CHOOSE PASSWORD", type="password", key="signup_pass")
+        signup_email = st.text_input("EMAIL ADDRESS", placeholder="e.g., alex@example.com", key="signup_email")
+        signup_user = st.text_input("CHOOSE USERNAME", placeholder="e.g., alex_vault", key="signup_user")
+        signup_pass = st.text_input("CHOOSE PASSWORD", type="password", placeholder="Minimum 6 characters", key="signup_pass")
         
         if st.button("CREATE ACCOUNT", key="btn_signup_submit"):
-            if signup_user.strip() and signup_pass.strip():
-                try:
-                    response = requests.post(f"{API_BASE}/signup", json={"username": signup_user.strip(), "password": signup_pass.strip()})
-                    if response.status_code == 200:
-                        st.success("Profile created! Please switch to the Login tab.")
-                    else:
-                        st.error(response.json().get("detail", "Registration rejected."))
-                except Exception as e:
-                    st.error(f"Backend connectivity failure: {e}")
+            email_clean = signup_email.strip()
+            user_clean = signup_user.strip()
+            pass_clean = signup_pass.strip()
+            
+            if email_clean and user_clean and pass_clean:
+                with st.spinner("Writing account to the vault..."):
+                    try:
+                        payload = {
+                            "username": user_clean,
+                            "email": email_clean,
+                            "password": pass_clean
+                        }
+                        response = requests.post(f"{API_BASE}/signup", json=payload)
+                        if response.status_code == 200:
+                            st.success("🎉 Account created successfully! Please switch to the Login tab to sign in.")
+                        else:
+                            error_detail = response.json().get("detail", "Registration rejected.")
+                            st.error(f"❌ Signup Failed: {error_detail}")
+                    except Exception as e:
+                        st.error(f"Backend connectivity failure: {e}")
             else:
-                st.warning("All input fields are required.")
+                st.warning("⚠️ All input fields (Email, Username, and Password) are strictly required.")
                 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -753,7 +765,7 @@ else:
 
                     st.markdown(
                         "<div class='section-label'>Search Results</div>",
-                        implicit_allow_html=True,
+                        unsafe_allow_html=True,
                     )
                     poster_grid(cards, cols=grid_cols, key_prefix="search_results")
 
