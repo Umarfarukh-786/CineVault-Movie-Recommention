@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
-
+from googleapiclient.discovery import build  # Kept neatly up top
 
 # =========================
 # ENV
@@ -110,10 +110,6 @@ def init_db():
         conn.close()
 
 
-# Initialize MySQL Schema on startup
-init_db()
-
-
 # =========================
 # PICKLE GLOBALS
 # =========================
@@ -137,7 +133,7 @@ TITLE_TO_IDX: Optional[Dict[str, int]] = None
 # =========================
 class SignupCredentials(BaseModel):
     username: str
-    email: EmailStr  # Automatically enforces standard formatting (e.g., user@example.com)
+    email: EmailStr  
     password: str
 
 
@@ -193,7 +189,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 # =========================
-# UTILS
+# UTILS / YOUTUBE TRAILER
 # =========================
 def _norm_title(t: str) -> str:
     return str(t).strip().lower()
@@ -203,6 +199,33 @@ def make_img_url(path: Optional[str]) -> Optional[str]:
     if not path:
         return None
     return f"{TMDB_IMG_500}{path}"
+
+
+def get_movie_trailer_id(movie_title: str) -> Optional[str]:
+    """Searches YouTube for the movie trailer using the project API key."""
+    api_key = os.environ.get('YOUTUBE_API_KEY')
+    if not api_key:
+        print("YouTube API Key missing from environment configurations.")
+        return None
+
+    try:
+        youtube = build('youtube', 'v3', developerKey=api_key)
+        search_query = f"{movie_title} official trailer"
+        
+        request = youtube.search().list(
+            q=search_query,
+            part='id,snippet',
+            maxResults=1,
+            type='video'
+        )
+        response = request.execute()
+        
+        if response.get('items'):
+            return response['items'][0]['id']['videoId']
+        return None
+    except Exception as e:
+        print(f"Error fetching trailer link: {e}")
+        return None
 
 
 async def tmdb_get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -402,17 +425,14 @@ def signup(user: SignupCredentials):
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            # Check unique username constraint match
             cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
             if cursor.fetchone():
                 raise HTTPException(status_code=400, detail="Username already exists!")
             
-            # Check unique email constraint match
             cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
             if cursor.fetchone():
                 raise HTTPException(status_code=400, detail="An account with this email already exists!")
 
-            # Write secure registration record to local MySQL tables
             hashed = hash_password(password)
             cursor.execute(
                 "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)",
@@ -577,38 +597,18 @@ async def search_bundle(
     )
 
 
+# =========================
+# CONTROLLED ENTRY BLOCK
+# =========================
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-
-
-import os
-from googleapiclient.discovery import build
-
-def get_movie_trailer_id(movie_title):
-    """
-    Searches YouTube for the movie trailer using the project API key.
-    """
-    api_key = os.environ.get('YOUTUBE_API_KEY')
-    if not api_key:
-        print("YouTube API Key missing from environment configurations.")
-        return None
-
+    
+    # 1. Database schema initialization runs ONLY when executing main.py locally or explicitly
     try:
-        youtube = build('youtube', 'v3', developerKey=api_key)
-        search_query = f"{movie_title} official trailer"
-        
-        request = youtube.search().list(
-            q=search_query,
-            part='id,snippet',
-            maxResults=1,
-            type='video'
-        )
-        response = request.execute()
-        
-        if response['items']:
-            return response['items'][0]['id']['videoId']
-        return None
+        init_db()
+        print("Database schema loaded successfully.")
     except Exception as e:
-        print(f"Error fetching trailer link: {e}")
-        return None
+        print(f"Skipping global database installation layout parameters: {e}")
+        
+    # 2. Launch Local Development Server Instance
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
