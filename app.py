@@ -230,10 +230,7 @@ hr { border-color: var(--border) !important; }
 .section-label::before { content: ''; display: block; width: 4px; height: 1.2em; background: var(--gold); border-radius: 2px; }
 
 /* ── MOVIE CARD ── */
-.movie-card-wrap {
-  perspective: 900px;
-  margin-bottom: 0.5rem;
-}
+.movie-card-wrap { perspective: 900px; margin-bottom: 0.5rem; }
 .movie-card {
   background: var(--surf2);
   border: 1px solid var(--border);
@@ -251,7 +248,6 @@ hr { border-color: var(--border) !important; }
     0 0 0 1px var(--gold),
     inset 0 0 30px rgba(201,168,76,0.06);
 }
-
 .movie-card::before {
   content: '';
   position: absolute;
@@ -262,7 +258,6 @@ hr { border-color: var(--border) !important; }
   z-index: 2;
   border-radius: var(--radius) var(--radius) 0 0;
 }
-
 .movie-card img {
   width: 100%;
   display: block;
@@ -270,7 +265,6 @@ hr { border-color: var(--border) !important; }
   transition: filter 0.3s;
 }
 .movie-card:hover img { filter: brightness(1.08) saturate(1.1); }
-
 .movie-card-body { padding: 8px 10px 10px; }
 .movie-card-title {
   font-family: 'Barlow', sans-serif;
@@ -430,10 +424,10 @@ p { color: var(--text); }
 .sidebar-rule { height: 1px; background: var(--border); margin: 0.6rem 0 1rem; }
 .stSelectbox > div { color: var(--text) !important; }
 
-/* ── LOGIN GATE CENTERED PANEL ── */
+/* ── CENTERED ACCOUNT GATE PANEL ── */
 .auth-container {
   max-width: 450px;
-  margin: 2rem auto;
+  margin: 4rem auto;
   padding: 2.5rem;
   background: linear-gradient(135deg, #121212, #0d0d0d);
   border: 1px solid var(--border);
@@ -605,7 +599,6 @@ def parse_tmdb_search_to_cards(data, keyword: str, limit: int = 24):
 # VIEW FUNCTION: AUTHENTICATION GATEWAY
 # ==========================================================
 def show_auth_page():
-    # Centered design layout wrapping the elements inside our custom container
     st.markdown("<div class='auth-container'>", unsafe_allow_html=True)
     st.markdown("<h2 style='text-align:center;font-family:\"Bebas Neue\";letter-spacing:2px;color:var(--gold);'>ACCOUNT PORTAL</h2>", unsafe_allow_html=True)
     
@@ -660,16 +653,67 @@ if not st.session_state.logged_in:
     show_auth_page()
 else:
     # =============================
-    # SIDEBAR PROFILE + ENGINE CONTROLS
+    # SIDEBAR PROFILE CONTROLS
     # =============================
     with st.sidebar:
-        st.markdown(f"<p style='color:var(--text);font-size:0.9rem;'>User: <b>{st.session_state.username}</b></p>", unsafe_allow_html=True)
+        st.markdown("<div class='sidebar-title'>🎬 CineVault</div>", unsafe_allow_html=True)
+        st.markdown("<div class='sidebar-rule'></div>", unsafe_allow_html=True)
+
+        if st.button("🏠 Home"):
+            goto_home()
+
+        st.markdown("---")
+        st.markdown(f"<p style='color:var(--text);font-size:0.85rem;margin-bottom:12px;'>User: <b>{st.session_state.username}</b></p>", unsafe_allow_html=True)
         if st.button("🔒 Logout", key="btn_logout"):
             st.session_state.logged_in = False
             st.session_state.username = ""
             st.rerun()
             
         st.markdown("<div class='sidebar-rule'></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='color:#7a7060;font-size:0.72rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:6px;'>Home Feed</p>",
+            unsafe_allow_html=True,
+        )
+        home_category = st.selectbox(
+            "Category",
+            ["trending", "popular", "top_rated", "now_playing", "upcoming"],
+            index=0,
+            label_visibility="collapsed",
+        )
+        st.markdown(
+            "<p style='color:#7a7060;font-size:0.72rem;letter-spacing:0.15em;text-transform:uppercase;margin:12px 0 6px;'>Columns</p>",
+            unsafe_allow_html=True,
+        )
+        grid_cols = st.slider("Grid columns", 4, 8, 6, label_visibility="collapsed")
+
+        st.markdown(
+            """
+            <div style='position:absolute;bottom:24px;left:0;right:0;text-align:center;'>
+              <p style='color:#2a2a2a;font-size:0.65rem;letter-spacing:0.2em;'>CINEVAULT © 2026</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # =============================
+    # CINEMATIC HERO HEADER
+    # =============================
+    st.markdown(
+        """
+        <div class='cinevault-hero'>
+          <a href='/?view=home' style='text-decoration:none;'>
+            <div class='cinevault-logo'>CineVault</div>
+          </a>
+          <div class='cinevault-tagline'>Discover movies beyond imagination.</div>
+          <div class='cinevault-rule'>
+            <span></span><em>✦</em><span></span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.divider()
 
     # ==========================================================
     # ENGINE CORE: VIEW HOME
@@ -709,7 +753,7 @@ else:
 
                     st.markdown(
                         "<div class='section-label'>Search Results</div>",
-                        unsafe_allow_html=True,
+                        implicit_allow_html=True,
                     )
                     poster_grid(cards, cols=grid_cols, key_prefix="search_results")
 
