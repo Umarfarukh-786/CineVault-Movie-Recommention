@@ -171,6 +171,7 @@ class SearchBundleResponse(BaseModel):
     movie_details: TMDBMovieDetails
     tfidf_recommendations: List[TFIDFRecItem]
     genre_recommendations: List[TMDBMovieCard]
+    recommendation_source: str = "none"
 
 
 # =========================
