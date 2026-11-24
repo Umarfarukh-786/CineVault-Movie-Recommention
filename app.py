@@ -8,9 +8,9 @@ import streamlit as st
 from main import get_movie_trailer_id
 
 # CONFIG
-API_BASE = os.environ.get("BACKEND_API_URL", "https://cinevault-movie-recommention.onrender.com")
+API_BASE = os.environ.get("BACKEND_API_URL", "https://cinevault-movie-recommention-1.onrender.com").rstrip("/")
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
-REQUEST_TIMEOUT = (8, 30)
+REQUEST_TIMEOUT = (15, 60)  # connect timeout, read timeout
 logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="CineVault", page_icon="🎬", layout="wide")
@@ -122,28 +122,81 @@ def goto_details(tmdb_id: int):
 
 # API HELPERS
 @st.cache_data(ttl=45, show_spinner=False)
-def api_get_json(path: str, params: dict | None = None):
-    """Fetch JSON from the CineVault backend with safe, readable errors."""
-    try:
-        response = requests.get(
-            f"{API_BASE.rstrip('/')}/{path.lstrip('/')}",
-            params=params,
-            timeout=REQUEST_TIMEOUT,
-        )
-        response.raise_for_status()
+def _api_get_json_cached(path: str, params_items: tuple):
+    """
+    Fetch and cache successful JSON responses only.
+    Exceptions are deliberately raised so failed/time-out requests are not cached.
+    """
+    params = dict(params_items)
+    url = f"{API_BASE}/{path.lstrip('/')}"
+    last_error = None
+
+    # Render free services may need time to wake from an idle state.
+    # Retry once after a short pause if the request times out or temporarily fails.
+    for attempt in range(2):
         try:
-            return response.json(), None
-        except ValueError:
-            logger.warning("Backend returned non-JSON response for %s", path)
-            return None, "The server returned an unexpected response. Please try again."
-    except requests.Timeout:
-        return None, "The server took too long to respond. Please try again."
-    except requests.RequestException as exc:
-        logger.warning("API request failed for %s: %s", path, exc)
-        status = getattr(getattr(exc, "response", None), "status_code", None)
-        if status:
-            return None, f"The server returned HTTP {status}. Please try again later."
-        return None, "Could not connect to the CineVault server. Check your connection and try again."
+            response = requests.get(
+                url,
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+                headers={"Accept": "application/json"},
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.Timeout as exc:
+            last_error = exc
+            logger.warning(
+                "API timeout for %s (attempt %s/2)",
+                path,
+                attempt + 1,
+            )
+
+        except requests.RequestException as exc:
+            last_error = exc
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+
+            # Retry transient server errors; don't retry normal client errors.
+            if status is not None and status < 500:
+                raise RuntimeError(f"The server returned HTTP {status}.")
+            logger.warning(
+                "API request failed for %s (attempt %s/2): %s",
+                path,
+                attempt + 1,
+                exc,
+            )
+
+        except ValueError as exc:
+            raise RuntimeError("The server returned an unexpected response.") from exc
+
+        if attempt == 0:
+            import time
+            time.sleep(2)
+
+    if isinstance(last_error, requests.Timeout):
+        raise RuntimeError(
+            "The server is taking too long to respond, even after a retry. "
+            "Please try again in a moment."
+        ) from last_error
+
+    raise RuntimeError(
+        "Could not connect to the CineVault server. Please try again."
+    ) from last_error
+
+
+def api_get_json(path: str, params: dict | None = None):
+    """Fetch JSON from the CineVault backend with retry and readable errors."""
+    try:
+        # Sorting makes equivalent parameter dictionaries share the same cache key.
+        params_items = tuple(sorted((params or {}).items()))
+        return _api_get_json_cached(path, params_items), None
+    except RuntimeError as exc:
+        return None, str(exc)
+    except Exception as exc:
+        logger.exception("Unexpected API helper error for %s", path)
+        return None, "An unexpected error occurred while contacting CineVault."
+
+
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -552,9 +605,6 @@ elif st.session_state.view == "details":
     # ── RECOMMENDATIONS ──
     if title:
         with st.spinner("Finding similar films..."):
-            # Clear cached response temporarily for fresh testing
-            api_get_json.clear()
-
             bundle, err2 = api_get_json(
                 "/movie/search",
                 params={
