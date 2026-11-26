@@ -3,6 +3,7 @@ import asyncio
 import ast
 import json
 import re
+import threading
 from typing import Optional, List, Dict, Any, Tuple
 from urllib.parse import urlparse, unquote
 
@@ -135,6 +136,9 @@ movie_vectorizer: Optional[TfidfVectorizer] = None
 movie_tfidf_matrix: Any = None
 MOVIE_ID_TO_IDX: Dict[int, int] = {}
 TITLE_TO_INDICES: Dict[str, List[int]] = {}
+
+# Prevent duplicate model loads when multiple requests arrive together.
+MOVIE_MODEL_LOAD_LOCK = threading.Lock()
 
 # =========================
 # PYDANTIC MODELS
@@ -416,7 +420,21 @@ def movie_text(row: pd.Series) -> str:
 
 
 def load_movie_dataset() -> None:
-    """Load the CSV and build one reusable TF-IDF matrix at application startup."""
+    """Load the CSV model once, on the first request that needs it."""
+    global movies_df, movie_vectorizer, movie_tfidf_matrix
+
+    if movies_df is not None and movie_vectorizer is not None and movie_tfidf_matrix is not None:
+        return
+
+    with MOVIE_MODEL_LOAD_LOCK:
+        # Another request may have completed loading while this request waited.
+        if movies_df is not None and movie_vectorizer is not None and movie_tfidf_matrix is not None:
+            return
+        _load_movie_dataset_unlocked()
+
+
+def _load_movie_dataset_unlocked() -> None:
+    """Read the CSV and build the reusable TF-IDF model."""
     global movies_df, movie_vectorizer, movie_tfidf_matrix
     global MOVIE_ID_TO_IDX, TITLE_TO_INDICES
 
@@ -505,8 +523,7 @@ def _rank_local_movies(
     local_query_idx: Optional[int] = None,
 ) -> List[Tuple[int, float]]:
     """Rank the full CSV using 60% plot similarity and 40% genre Jaccard."""
-    if movies_df is None or movie_tfidf_matrix is None or movie_vectorizer is None:
-        raise HTTPException(status_code=503, detail="Movie CSV recommendation model is not loaded.")
+    load_movie_dataset()
 
     if local_query_idx is not None:
         query_vector = movie_tfidf_matrix[local_query_idx]
@@ -546,8 +563,7 @@ def _rank_local_movies(
 
 def local_recommendations_for_title(title: str, top_n: int = 10) -> List[Tuple[str, float]]:
     """Compatibility helper for the existing /recommend/tfidf endpoint."""
-    if movies_df is None:
-        raise HTTPException(status_code=503, detail="Movie CSV recommendation model is not loaded.")
+    load_movie_dataset()
     indices = TITLE_TO_INDICES.get(normalize_title(title), [])
     if not indices:
         raise HTTPException(status_code=404, detail=f"Title not found in local dataset: '{title}'")
@@ -573,6 +589,7 @@ async def hybrid_csv_recommendations(
     limit: int = 12,
 ) -> List[TFIDFRecItem]:
     """Recommend from the local CSV, matching by TMDB ID before using TMDB plot text."""
+    load_movie_dataset()
     local_idx = MOVIE_ID_TO_IDX.get(int(details.tmdb_id))
     query_overview = str(details.overview or "")
     query_genres = genre_ids_from_details(details)
@@ -650,12 +667,8 @@ async def get_tmdb_fallback_recommendations(
     return []
 
 
-# =========================
-# STARTUP: LOAD LOCAL CSV MODEL
-# =========================
-@app.on_event("startup")
-def load_movie_model():
-    load_movie_dataset()
+# The local CSV/TF-IDF model is intentionally NOT loaded at startup.
+# It is loaded on demand by the recommendation functions above.
 
 
 # =========================
