@@ -473,7 +473,7 @@ def _load_movie_dataset_unlocked() -> None:
         stop_words="english",
         ngram_range=(1, 2),
         min_df=2,
-        max_features=150000,
+        max_features=40000,
         sublinear_tf=True,
     )
     matrix = vectorizer.fit_transform(data["_text"].tolist())
@@ -975,3 +975,4 @@ if __name__ == "__main__":
         port=8000,
         reload=True,
     )
+
