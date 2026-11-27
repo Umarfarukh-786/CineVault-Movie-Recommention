@@ -373,12 +373,25 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
                 )
 
                 if tmdb_id is not None:
-                    # A normal same-tab navigation reloads this Streamlit page at
-                    # the new movie URL, naturally starting at the top. It does
-                    # not open a second tab or create a separate app page.
-                    st.markdown(
-                        f"<a class='movie-details-link' href='?view=details&amp;id={tmdb_id}'>▶ View details</a>",
-                        unsafe_allow_html=True,
+                    # Navigate the top-level browser window in the SAME tab.
+                    # The component button performs a real document navigation,
+                    # so the new movie page starts at scroll position zero.
+                    st.components.v1.html(
+                        f"""
+                        <button class="movie-details-link" type="button"
+                          onclick="window.top.location.href = '?view=details&id={tmdb_id}'">
+                          ▶ View details
+                        </button>
+                        <style>
+                          .movie-details-link {{ display:flex; align-items:center; justify-content:center;
+                            width:100%; min-height:42px; margin:7px 0 3px; padding:9px 12px;
+                            background:#e50914; color:#fff; border:0; border-radius:6px;
+                            font:700 14px Arial,sans-serif; cursor:pointer; }}
+                          .movie-details-link:hover {{ background:#b20710; }}
+                        </style>
+                        """,
+                        height=54,
+                        scrolling=False,
                     )
                 else:
                     st.button(
@@ -708,6 +721,31 @@ elif st.session_state.view == "details":
         # ──────────────────────
 
         st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── CAST ──
+    cast_members = data.get("cast") or []
+    if cast_members:
+        st.markdown("<div class='section-label'>Cast</div>", unsafe_allow_html=True)
+        cast_cols = st.columns(6, gap="medium")
+        for cast_index, member in enumerate(cast_members[:12]):
+            if not isinstance(member, dict):
+                continue
+            with cast_cols[cast_index % 6]:
+                profile_url = clean_image_url(member.get("profile_url"))
+                if profile_url:
+                    st.image(profile_url, use_container_width=True)
+                else:
+                    st.markdown(
+                        "<div class='no-poster' style='aspect-ratio:2/3;font-size:1.5rem;'>🎭</div>",
+                        unsafe_allow_html=True,
+                    )
+                actor_name = html.escape(str(member.get("name") or "Unknown actor"))
+                character = html.escape(str(member.get("character") or ""))
+                st.markdown(
+                    f"<div class='movie-card-title'>{actor_name}</div>"
+                    f"<div style='color:#aaa;font-size:.72rem;margin-top:3px;'>{character}</div>",
+                    unsafe_allow_html=True,
+                )
 
     st.divider()
 

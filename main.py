@@ -4,18 +4,26 @@ import ast
 import json
 import re
 import threading
+try:
+    import resource
+except ImportError:  # Windows local development
+    resource = None
 from typing import Optional, List, Dict, Any, Tuple
+from urllib.parse import urlparse, unquote
+
+import bcrypt
 import httpx
 import numpy as np
 import pandas as pd
 import joblib
 from scipy.sparse import load_npz
 from sklearn.feature_extraction.text import TfidfVectorizer
+import pymysql
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from googleapiclient.discovery import build
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 # =========================
 # ENVIRONMENT
@@ -23,12 +31,16 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG_500 = "https://image.tmdb.org/t/p/w500"
 
 if not TMDB_API_KEY:
     raise RuntimeError("TMDB_API_KEY is missing. Set TMDB_API_KEY in Render environment variables.")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is missing. Set DATABASE_URL in Render environment variables.")
 
 
 # =========================
@@ -46,14 +58,91 @@ app.add_middleware(
 
 
 # =========================
+# DATABASE SETUP
+# =========================
+def get_base_connection():
+    """Connect to the MySQL server without selecting a database."""
+    url = urlparse(DATABASE_URL)
+    return pymysql.connect(
+        host=url.hostname,
+        user=url.username,
+        password=unquote(url.password) if url.password else "",
+        port=url.port or 3306,
+        connect_timeout=15,
+    )
+
+
+def get_db_connection():
+    """Connect to the application's MySQL database."""
+    url = urlparse(DATABASE_URL)
+    db_name = url.path.lstrip("/")
+    if not db_name:
+        raise RuntimeError("DATABASE_URL must include a database name.")
+
+    return pymysql.connect(
+        host=url.hostname,
+        user=url.username,
+        password=unquote(url.password) if url.password else "",
+        database=db_name,
+        port=url.port or 3306,
+        cursorclass=pymysql.cursors.DictCursor,
+        connect_timeout=15,
+    )
+
+
+def init_db():
+    """Create the application database and users table if they do not exist."""
+    url = urlparse(DATABASE_URL)
+    db_name = url.path.lstrip("/")
+    if not db_name:
+        raise RuntimeError("DATABASE_URL must include a database name.")
+
+    # Database names cannot be passed as SQL parameters. Validate before interpolation.
+    if not db_name.replace("_", "").isalnum():
+        raise RuntimeError("DATABASE_URL contains an invalid database name.")
+
+    base_conn = get_base_connection()
+    try:
+        with base_conn.cursor() as cursor:
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{db_name}`;")
+        base_conn.commit()
+    finally:
+        base_conn.close()
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(255) UNIQUE NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                """
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# =========================
 # LOCAL MOVIE DATASET / RECOMMENDATION MODEL
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(BASE_DIR, "movie_model")
+MOVIE_MODEL_DIR = os.path.join(BASE_DIR, "movie_model")
 
-MOVIES_PKL_PATH = os.path.join(MODEL_DIR, "movies_metadata.pkl")
-TFIDF_MATRIX_PATH = os.path.join(MODEL_DIR, "tfidf_matrix.npz")
-TFIDF_VECTORIZER_PATH = os.path.join(MODEL_DIR, "tfidf_vectorizer.joblib")
+MOVIES_METADATA_PATH = os.path.join(
+    MOVIE_MODEL_DIR, "movies_metadata.pkl"
+)
+TFIDF_MATRIX_PATH = os.path.join(
+    MOVIE_MODEL_DIR, "tfidf_matrix.npz"
+)
+TFIDF_VECTORIZER_PATH = os.path.join(
+    MOVIE_MODEL_DIR, "tfidf_vectorizer.joblib"
+)
 
 movies_df: Optional[pd.DataFrame] = None
 movie_vectorizer: Optional[TfidfVectorizer] = None
@@ -67,6 +156,17 @@ MOVIE_MODEL_LOAD_LOCK = threading.Lock()
 # =========================
 # PYDANTIC MODELS
 # =========================
+class SignupCredentials(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+
+
+class LoginCredentials(BaseModel):
+    username: str
+    password: str
+
+
 class TMDBMovieCard(BaseModel):
     tmdb_id: int
     title: str
@@ -83,6 +183,7 @@ class TMDBMovieDetails(BaseModel):
     poster_url: Optional[str] = None
     backdrop_url: Optional[str] = None
     genres: List[dict] = Field(default_factory=list)
+    cast: List[dict] = Field(default_factory=list)
 
 
 class TFIDFRecItem(BaseModel):
@@ -100,6 +201,22 @@ class SearchBundleResponse(BaseModel):
     # "tmdb_fallback": generated by TMDB similar/recommendation endpoints.
     # "none": neither source returned recommendations.
     recommendation_source: str = "none"
+
+
+# =========================
+# SECURITY HELPERS
+# =========================
+def hash_password(password: str) -> str:
+    password_bytes = password.encode("utf-8")
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8"),
+    )
 
 
 # =========================
@@ -213,10 +330,22 @@ async def tmdb_cards_from_results(
 
 
 async def tmdb_movie_details(movie_id: int) -> TMDBMovieDetails:
+    # TMDB returns the main movie details and credits in one request.
     data = await tmdb_get(
         f"/movie/{movie_id}",
-        {"language": "en-US"},
+        {"language": "en-US", "append_to_response": "credits"},
     )
+
+    credits = data.get("credits") or {}
+    cast = []
+    for person in (credits.get("cast") or [])[:12]:
+        if not person.get("name"):
+            continue
+        cast.append({
+            "name": person.get("name"),
+            "character": person.get("character"),
+            "profile_url": make_img_url(person.get("profile_path")),
+        })
 
     return TMDBMovieDetails(
         tmdb_id=int(data["id"]),
@@ -226,6 +355,7 @@ async def tmdb_movie_details(movie_id: int) -> TMDBMovieDetails:
         poster_url=make_img_url(data.get("poster_path")),
         backdrop_url=make_img_url(data.get("backdrop_path")),
         genres=data.get("genres") or [],
+        cast=cast,
     )
 
 
@@ -317,8 +447,9 @@ def movie_text(row: pd.Series) -> str:
 
 
 def load_movie_dataset() -> None:
-    """Load the prebuilt movie model only once, when first needed."""
+    """Load the prebuilt movie model once, without training TF-IDF on Render."""
     global movies_df, movie_vectorizer, movie_tfidf_matrix
+    global MOVIE_ID_TO_IDX, TITLE_TO_INDICES
 
     if (
         movies_df is not None
@@ -335,59 +466,61 @@ def load_movie_dataset() -> None:
         ):
             return
 
-        _load_movie_dataset_unlocked()
+        print("[MODEL] Loading prebuilt movie model...", flush=True)
 
+        required_files = [
+            MOVIES_METADATA_PATH,
+            TFIDF_MATRIX_PATH,
+            TFIDF_VECTORIZER_PATH,
+        ]
 
-def _load_movie_dataset_unlocked() -> None:
-    """Load the prebuilt dataset, sparse TF-IDF matrix, and vectorizer."""
-    global movies_df, movie_vectorizer, movie_tfidf_matrix
-    global MOVIE_ID_TO_IDX, TITLE_TO_INDICES
+        for file_path in required_files:
+            if not os.path.isfile(file_path):
+                raise RuntimeError(
+                    f"Required movie model file not found: {file_path}"
+                )
 
-    required_files = [
-        MOVIES_PKL_PATH,
-        TFIDF_MATRIX_PATH,
-        TFIDF_VECTORIZER_PATH,
-    ]
+        # These files are generated by build_model.py and must be trusted.
+        loaded_movies = pd.read_pickle(MOVIES_METADATA_PATH)
+        loaded_matrix = load_npz(TFIDF_MATRIX_PATH).tocsr()
+        loaded_vectorizer = joblib.load(TFIDF_VECTORIZER_PATH)
 
-    for file_path in required_files:
-        if not os.path.isfile(file_path):
-            raise RuntimeError(f"Required movie model file not found: {file_path}")
+        if len(loaded_movies) != loaded_matrix.shape[0]:
+            raise RuntimeError(
+                "Movie metadata and TF-IDF matrix have different row counts."
+            )
 
-    print("Loading prebuilt movie model...")
+        if loaded_matrix.shape[1] != len(loaded_vectorizer.vocabulary_):
+            raise RuntimeError(
+                "TF-IDF matrix and vectorizer feature counts do not match."
+            )
 
-    data = pd.read_pickle(MOVIES_PKL_PATH)
-    matrix = load_npz(TFIDF_MATRIX_PATH)
-    vectorizer = joblib.load(TFIDF_VECTORIZER_PATH)
+        if "_genre_ids" not in loaded_movies.columns:
+            raise RuntimeError("The movie metadata is missing _genre_ids.")
 
-    if len(data) != matrix.shape[0]:
-        raise RuntimeError(
-            "Movie dataset row count does not match the TF-IDF matrix."
+        id_to_idx = {
+            int(movie_id): idx
+            for idx, movie_id in enumerate(loaded_movies["id"].tolist())
+        }
+
+        title_to_indices: Dict[str, List[int]] = {}
+        for idx, title in enumerate(loaded_movies["title"].tolist()):
+            title_to_indices.setdefault(
+                normalize_title(title), []
+            ).append(idx)
+
+        movies_df = loaded_movies
+        movie_tfidf_matrix = loaded_matrix
+        movie_vectorizer = loaded_vectorizer
+        MOVIE_ID_TO_IDX = id_to_idx
+        TITLE_TO_INDICES = title_to_indices
+
+        print(
+            f"[MODEL] Loaded {len(movies_df)} movies; "
+            f"TF-IDF matrix shape: {movie_tfidf_matrix.shape}; "
+            f"dtype: {movie_tfidf_matrix.dtype}.",
+            flush=True,
         )
-
-    if "_genre_ids" not in data.columns:
-        raise RuntimeError(
-            "The saved movie dataset is missing the _genre_ids column."
-        )
-
-    id_to_idx = {
-        int(movie_id): idx
-        for idx, movie_id in enumerate(data["id"].tolist())
-    }
-
-    title_to_indices: Dict[str, List[int]] = {}
-    for idx, title in enumerate(data["title"].tolist()):
-        title_to_indices.setdefault(normalize_title(title), []).append(idx)
-
-    movies_df = data
-    movie_vectorizer = vectorizer
-    movie_tfidf_matrix = matrix
-    MOVIE_ID_TO_IDX = id_to_idx
-    TITLE_TO_INDICES = title_to_indices
-
-    print(
-        f"Prebuilt movie model loaded: {len(data)} movies; "
-        f"TF-IDF matrix shape: {matrix.shape}."
-    )
 
 
 def _local_movie_card(row: pd.Series) -> TMDBMovieCard:
@@ -418,7 +551,7 @@ def _rank_local_movies(
     exclude_tmdb_id: Optional[int] = None,
     local_query_idx: Optional[int] = None,
 ) -> List[Tuple[int, float]]:
-    """Rank the full CSV using 60% plot similarity and 40% genre Jaccard."""
+    """Rank movies using 60% plot similarity and 40% genre Jaccard."""
     load_movie_dataset()
 
     if local_query_idx is not None:
@@ -427,33 +560,43 @@ def _rank_local_movies(
         query_vector = movie_vectorizer.transform([query_overview or ""])
 
     plot_scores = (query_vector @ movie_tfidf_matrix.T).toarray().ravel()
-    candidate_genres = movies_df["_genre_ids"].tolist()
+    # Ensure subsequent arithmetic does not promote the score arrays to float64.
+    plot_scores = plot_scores.astype(np.float32, copy=False)
     genre_scores = np.zeros(len(movies_df), dtype=np.float32)
     if query_genres:
-        for idx, candidate_ids in enumerate(candidate_genres):
+        for idx, candidate_ids in enumerate(movies_df["_genre_ids"]):
             if candidate_ids:
-                union = query_genres | candidate_ids
-                genre_scores[idx] = len(query_genres & candidate_ids) / len(union) if union else 0.0
+                union_size = len(query_genres | candidate_ids)
+                if union_size:
+                    genre_scores[idx] = len(query_genres & candidate_ids) / union_size
 
-    final_scores = (0.60 * plot_scores) + (0.40 * genre_scores)
+    final_scores = plot_scores
+    final_scores *= np.float32(0.60)
+    final_scores += np.float32(0.40) * genre_scores
+    del genre_scores
+
     if exclude_tmdb_id is not None:
         excluded_idx = MOVIE_ID_TO_IDX.get(int(exclude_tmdb_id))
         if excluded_idx is not None:
             final_scores[excluded_idx] = -1.0
 
-    # Do not return records with neither plot nor genre information.
-    valid_mask = (plot_scores > 0) | (genre_scores > 0)
-    final_scores[~valid_mask] = -1.0
-    ranked = np.argsort(-final_scores)
+    valid_indices = np.flatnonzero(final_scores > 0)
+    if valid_indices.size == 0:
+        return []
 
+    top_count = min(max(1, int(limit)), int(valid_indices.size))
+    valid_scores = final_scores[valid_indices]
+    if valid_indices.size > top_count:
+        selected_positions = np.argpartition(valid_scores, -top_count)[-top_count:]
+        selected_indices = valid_indices[selected_positions]
+    else:
+        selected_indices = valid_indices
+
+    selected_indices = selected_indices[np.argsort(final_scores[selected_indices])[::-1]]
     results: List[Tuple[int, float]] = []
-    for idx in ranked:
-        if final_scores[idx] < 0:
-            break
+    for idx in selected_indices:
         row = movies_df.iloc[int(idx)]
         results.append((int(row["id"]), float(final_scores[idx])))
-        if len(results) >= limit:
-            break
     return results
 
 
@@ -563,7 +706,7 @@ async def get_tmdb_fallback_recommendations(
     return []
 
 
-# The local CSV/TF-IDF model is intentionally NOT loaded at startup.
+# The prebuilt movie model is intentionally NOT loaded at startup.
 # It is loaded on demand by the recommendation functions above.
 
 
@@ -581,6 +724,104 @@ def health():
         "status": "ok",
         "movie_dataset_loaded": movies_df is not None and movie_tfidf_matrix is not None,
         "movie_count": len(movies_df) if movies_df is not None else 0,
+    }
+
+
+# =========================
+# AUTHENTICATION ROUTES
+# =========================
+@app.post("/signup")
+def signup(user: SignupCredentials):
+    username = user.username.strip()
+    email = str(user.email).strip()
+    password = user.password.strip()
+
+    if not username or not email or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="All signup fields are required.",
+        )
+
+    connection = get_db_connection()
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM users WHERE username = %s",
+                (username,),
+            )
+            if cursor.fetchone():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Username already exists!",
+                )
+
+            cursor.execute(
+                "SELECT id FROM users WHERE email = %s",
+                (email,),
+            )
+            if cursor.fetchone():
+                raise HTTPException(
+                    status_code=400,
+                    detail="An account with this email already exists!",
+                )
+
+            password_hash = hash_password(password)
+
+            cursor.execute(
+                """
+                INSERT INTO users (username, email, password_hash)
+                VALUES (%s, %s, %s)
+                """,
+                (username, email, password_hash),
+            )
+
+        connection.commit()
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database execution failure: {exc}",
+        )
+    finally:
+        connection.close()
+
+    return {"message": "User registered successfully!"}
+
+
+@app.post("/login")
+def login(user: LoginCredentials):
+    username = user.username.strip()
+    password = user.password.strip()
+
+    connection = get_db_connection()
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT password_hash FROM users WHERE username = %s",
+                (username,),
+            )
+            row = cursor.fetchone()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database connection failure: {exc}",
+        )
+    finally:
+        connection.close()
+
+    if not row or not verify_password(password, row["password_hash"]):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password.",
+        )
+
+    return {
+        "message": "Login successful",
+        "username": username,
     }
 
 
@@ -615,64 +856,6 @@ async def home(
         data.get("results", []),
         limit=limit,
     )
-
-
-# =========================
-# PAGINATED GLOBAL MOVIE FEED
-# =========================
-@app.get("/home/paged")
-async def paginated_home(
-    category: str = Query("popular"),
-    page: int = Query(1, ge=1, le=500),
-    limit: int = Query(24, ge=1, le=50),
-):
-    """
-    Return one page of movies from TMDB.
-    Supported categories: popular, top_rated, upcoming,
-    now_playing, and trending.
-    """
-    allowed_categories = {
-        "popular",
-        "top_rated",
-        "upcoming",
-        "now_playing",
-    }
-
-    if category == "trending":
-        path = "/trending/movie/day"
-    elif category in allowed_categories:
-        path = f"/movie/{category}"
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid category. Use popular, top_rated, "
-                "upcoming, now_playing, or trending."
-            ),
-        )
-
-    data = await tmdb_get(
-        path,
-        {
-            "language": "en-US",
-            "page": page,
-        },
-    )
-
-    cards = await tmdb_cards_from_results(
-        data.get("results", []),
-        limit=limit,
-    )
-
-    return {
-        "page": data.get("page", page),
-        "total_pages": data.get("total_pages", 1),
-        "total_results": data.get("total_results", 0),
-        "results": [
-            card.model_dump()
-            for card in cards
-        ],
-    }
 
 
 # =========================
@@ -816,6 +999,13 @@ async def search_bundle(
 # =========================
 if __name__ == "__main__":
     import uvicorn
+
+    # Initialize the database only when running this file directly.
+    try:
+        init_db()
+        print("Database initialized successfully.")
+    except Exception as exc:
+        print(f"Database initialization skipped/failed: {exc}")
 
     # Launch the local development server.
     uvicorn.run(
