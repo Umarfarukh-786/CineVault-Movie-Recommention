@@ -58,6 +58,9 @@ html,body,[class*="css"]{font-family:'DM Sans',sans-serif}
 .stButton>button{background:var(--red)!important;color:#fff!important;border:0!important;border-radius:6px!important;font-weight:700!important;letter-spacing:.02em!important;min-height:2.45rem;transition:background .2s,transform .2s!important}
 .stButton>button:hover{background:var(--red-dark)!important;transform:translateY(-1px)!important}
 .stButton>button:focus{box-shadow:0 0 0 2px #fff!important}
+.movie-details-link{display:block;text-align:center;text-decoration:none!important;background:var(--red);color:#fff!important;border-radius:6px;font-weight:700;font-size:.85rem;letter-spacing:.02em;padding:.65rem .5rem;margin:.35rem .55rem .65rem;transition:background .2s,transform .2s}
+.movie-details-link:hover{background:var(--red-dark);transform:translateY(-1px)}
+.movie-details-disabled{opacity:.45;cursor:not-allowed}
 hr{border-color:var(--line)!important}
 .movie-card-wrap{margin-bottom:.8rem}
 .movie-card{background:#171717;border:1px solid rgba(255,255,255,.07);border-radius:9px;overflow:hidden;transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
@@ -114,10 +117,8 @@ def goto_home():
 
 
 def goto_details(tmdb_id: int):
-    # Remember that navigation happened so the new detail view starts at the top.
     st.session_state.view = "details"
     st.session_state.selected_tmdb_id = int(tmdb_id)
-    st.session_state.scroll_details_to_top = True
     st.query_params["view"] = "details"
     st.query_params["id"] = str(int(tmdb_id))
     st.rerun()
@@ -371,8 +372,16 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
                     unsafe_allow_html=True,
                 )
 
-                if st.button("▶ View details", key=f"{key_prefix}_{r}_{c}_{idx}_{tmdb_id}", disabled=tmdb_id is None):
-                    goto_details(tmdb_id)
+                if tmdb_id is not None:
+                    st.markdown(
+                        f"<a class='movie-details-link' href='?view=details&id={tmdb_id}'>▶ View details</a>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        "<span class='movie-details-link movie-details-disabled'>▶ View details</span>",
+                        unsafe_allow_html=True,
+                    )
 
                 st.markdown("</div></div>", unsafe_allow_html=True)
 
@@ -755,58 +764,3 @@ elif st.session_state.view == "details":
 
     else:
         st.warning("No title available to compute recommendations.")
-
-    # Run this AFTER all detail/recommendation content has been emitted.
-    # Streamlit can restore the previous scroll position after an early script,
-    # so retry briefly while the new page layout settles.
-    if st.session_state.pop("scroll_details_to_top", False):
-        st.components.v1.html(
-            """
-            <script>
-            (() => {
-                const resetScroll = () => {
-                    try {
-                        const w = window.parent;
-                        const d = w.document;
-
-                        w.scrollTo(0, 0);
-
-                        const selectors = [
-                            "section.main",
-                            "[data-testid='stMain']",
-                            "[data-testid='stAppViewContainer']",
-                            "[data-testid='stMainBlockContainer']",
-                            ".main"
-                        ];
-
-                        for (const selector of selectors) {
-                            const element = d.querySelector(selector);
-                            if (element) {
-                                element.scrollTop = 0;
-                                if (typeof element.scrollTo === "function") {
-                                    element.scrollTo({ top: 0, left: 0, behavior: "instant" });
-                                }
-                            }
-                        }
-
-                        if (d.scrollingElement) {
-                            d.scrollingElement.scrollTop = 0;
-                        }
-                    } catch (error) {
-                        console.warn("CineVault scroll reset failed:", error);
-                    }
-                };
-
-                // Run after Streamlit has completed layout and scroll restoration.
-                requestAnimationFrame(() => {
-                    resetScroll();
-                    setTimeout(resetScroll, 100);
-                    setTimeout(resetScroll, 350);
-                    setTimeout(resetScroll, 700);
-                });
-            })();
-            </script>
-            """,
-            height=1,
-            width=1,
-        )
