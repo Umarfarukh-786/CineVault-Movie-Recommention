@@ -373,31 +373,19 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
                 )
 
                 if tmdb_id is not None:
-                    # Navigate the top-level browser window in the SAME tab.
-                    # The component button performs a real document navigation,
-                    # so the new movie page starts at scroll position zero.
-                    st.components.v1.html(
-                        f"""
-                        <button class="movie-details-link" type="button"
-                          onclick="window.top.location.href = '?view=details&id={tmdb_id}'">
-                          ▶ View details
-                        </button>
-                        <style>
-                          .movie-details-link {{ display:flex; align-items:center; justify-content:center;
-                            width:100%; min-height:42px; margin:7px 0 3px; padding:9px 12px;
-                            background:#e50914; color:#fff; border:0; border-radius:6px;
-                            font:700 14px Arial,sans-serif; cursor:pointer; }}
-                          .movie-details-link:hover {{ background:#b20710; }}
-                        </style>
-                        """,
-                        height=54,
-                        scrolling=False,
-                    )
+                    # Native Streamlit button: avoids iframe sandbox restrictions.
+                    if st.button(
+                        "▶ View details",
+                        key=f"{key_prefix}_{r}_{c}_{idx}_{tmdb_id}",
+                        use_container_width=True,
+                    ):
+                        goto_details(tmdb_id)
                 else:
                     st.button(
                         "▶ View details",
-                        key=f"{key_prefix}_{r}_{c}_{idx}_{tmdb_id}",
+                        key=f"{key_prefix}_{r}_{c}_{idx}_no_id",
                         disabled=True,
+                        use_container_width=True,
                     )
 
                 st.markdown("</div></div>", unsafe_allow_html=True)
@@ -599,25 +587,26 @@ if st.session_state.view == "home":
     with st.spinner("Loading the vault…"):
         home_data, err = api_get_json(
             "/home/paged",
-            params={"category": home_category, "page": st.session_state.home_page, "limit": 24},
+            params={"category": home_category, "page": st.session_state.home_page, "limit": 20},
         )
 
     if err:
         st.error(f"Home feed failed: {err}")
         st.stop()
-    if not isinstance(home_data, dict):
-        st.error("The paginated home feed returned an unexpected response.")
-        st.stop()
 
-    home_cards = home_data.get("results") or []
-    total_pages = int(home_data.get("total_pages") or 1)
-    total_results = int(home_data.get("total_results") or 0)
-
+    # The current FastAPI endpoint returns a plain JSON list, not an object
+    # containing results/total_pages. Normalize that list for the movie cards.
+    home_cards = normalize_recommendations(home_data)
     if not home_cards:
         st.info("No movies are available in this category right now. Please choose another category.")
         st.stop()
 
-    st.caption(f"Page {st.session_state.home_page} of {total_pages:,} · {total_results:,} movies")
+    # TMDB returns 20 movies per page. If fewer than 20 arrive, this is the
+    # final page. The API currently does not expose total_pages metadata.
+    page_size = 20
+    has_next_page = len(home_cards) >= page_size
+
+    st.caption(f"Page {st.session_state.home_page} · {len(home_cards)} movies")
     poster_grid(home_cards, cols=grid_cols, key_prefix=f"home_feed_{home_category}_{st.session_state.home_page}")
 
     prev_col, page_col, next_col = st.columns([1, 2, 1])
@@ -627,11 +616,11 @@ if st.session_state.view == "home":
             st.rerun()
     with page_col:
         st.markdown(
-            f"<div style='text-align:center;padding:.55rem 0;'>Page {st.session_state.home_page} / {total_pages}</div>",
+            f"<div style='text-align:center;padding:.55rem 0;'>Page {st.session_state.home_page}</div>",
             unsafe_allow_html=True,
         )
     with next_col:
-        if st.button("Next →", disabled=st.session_state.home_page >= total_pages, key="home_next"):
+        if st.button("Next →", disabled=not has_next_page, key="home_next"):
             st.session_state.home_page += 1
             st.rerun()
 
