@@ -618,6 +618,64 @@ async def home(
 
 
 # =========================
+# PAGINATED GLOBAL MOVIE FEED
+# =========================
+@app.get("/home/paged")
+async def paginated_home(
+    category: str = Query("popular"),
+    page: int = Query(1, ge=1, le=500),
+    limit: int = Query(24, ge=1, le=50),
+):
+    """
+    Return one page of movies from TMDB.
+    Supported categories: popular, top_rated, upcoming,
+    now_playing, and trending.
+    """
+    allowed_categories = {
+        "popular",
+        "top_rated",
+        "upcoming",
+        "now_playing",
+    }
+
+    if category == "trending":
+        path = "/trending/movie/day"
+    elif category in allowed_categories:
+        path = f"/movie/{category}"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid category. Use popular, top_rated, "
+                "upcoming, now_playing, or trending."
+            ),
+        )
+
+    data = await tmdb_get(
+        path,
+        {
+            "language": "en-US",
+            "page": page,
+        },
+    )
+
+    cards = await tmdb_cards_from_results(
+        data.get("results", []),
+        limit=limit,
+    )
+
+    return {
+        "page": data.get("page", page),
+        "total_pages": data.get("total_pages", 1),
+        "total_results": data.get("total_results", 0),
+        "results": [
+            card.model_dump()
+            for card in cards
+        ],
+    }
+
+
+# =========================
 # TMDB SEARCH
 # =========================
 @app.get("/tmdb/search")
