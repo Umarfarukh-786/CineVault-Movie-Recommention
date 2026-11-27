@@ -619,11 +619,6 @@ elif st.session_state.view == "details":
 
         elif isinstance(bundle, dict):
 
-            with st.expander("DEBUG: Complete API Response", expanded=True):
-                st.write("Movie title:", title)
-                st.write("Response keys:", list(bundle.keys()))
-                st.json(bundle)
-
             tfidf_items = bundle.get("tfidf_recommendations", [])
             genre_items = bundle.get("genre_recommendations", [])
 
@@ -633,9 +628,6 @@ elif st.session_state.view == "details":
             )
 
             similar_cards = normalize_recommendations(tfidf_items)
-
-            st.write("TF-IDF items:", len(tfidf_items))
-            st.write("Converted cards:", len(similar_cards))
 
             if similar_cards:
                 poster_grid(
