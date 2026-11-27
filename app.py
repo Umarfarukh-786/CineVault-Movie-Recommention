@@ -58,9 +58,9 @@ html,body,[class*="css"]{font-family:'DM Sans',sans-serif}
 .stButton>button{background:var(--red)!important;color:#fff!important;border:0!important;border-radius:6px!important;font-weight:700!important;letter-spacing:.02em!important;min-height:2.45rem;transition:background .2s,transform .2s!important}
 .stButton>button:hover{background:var(--red-dark)!important;transform:translateY(-1px)!important}
 .stButton>button:focus{box-shadow:0 0 0 2px #fff!important}
-.movie-details-link{display:block;text-align:center;text-decoration:none!important;background:var(--red);color:#fff!important;border-radius:6px;font-weight:700;font-size:.85rem;letter-spacing:.02em;padding:.65rem .5rem;margin:.35rem .55rem .65rem;transition:background .2s,transform .2s}
+.movie-details-link{display:flex;align-items:center;justify-content:center;width:100%;min-height:2.45rem;margin:.45rem 0 .2rem;padding:.55rem .75rem;background:var(--red);color:#fff!important;text-decoration:none!important;border-radius:6px;font-weight:700;letter-spacing:.02em;transition:background .2s,transform .2s}
 .movie-details-link:hover{background:var(--red-dark);transform:translateY(-1px)}
-.movie-details-disabled{opacity:.45;cursor:not-allowed}
+.movie-details-link:focus{outline:2px solid #fff;outline-offset:2px}
 hr{border-color:var(--line)!important}
 .movie-card-wrap{margin-bottom:.8rem}
 .movie-card{background:#171717;border:1px solid rgba(255,255,255,.07);border-radius:9px;overflow:hidden;transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
@@ -373,14 +373,18 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
                 )
 
                 if tmdb_id is not None:
+                    # A normal same-tab navigation reloads this Streamlit page at
+                    # the new movie URL, naturally starting at the top. It does
+                    # not open a second tab or create a separate app page.
                     st.markdown(
-                        f"<a class='movie-details-link' href='?view=details&id={tmdb_id}'>▶ View details</a>",
+                        f"<a class='movie-details-link' href='?view=details&amp;id={tmdb_id}'>▶ View details</a>",
                         unsafe_allow_html=True,
                     )
                 else:
-                    st.markdown(
-                        "<span class='movie-details-link movie-details-disabled'>▶ View details</span>",
-                        unsafe_allow_html=True,
+                    st.button(
+                        "▶ View details",
+                        key=f"{key_prefix}_{r}_{c}_{idx}_{tmdb_id}",
+                        disabled=True,
                     )
 
                 st.markdown("</div></div>", unsafe_allow_html=True)
