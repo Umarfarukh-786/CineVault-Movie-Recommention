@@ -858,6 +858,41 @@ async def home(
     )
 
 
+@app.get("/home/paged", response_model=List[TMDBMovieCard])
+async def paginated_home(
+    category: str = Query("popular"),
+    page: int = Query(1, ge=1, le=500),
+    limit: int = Query(24, ge=1, le=50),
+):
+    """Return one page of home-feed movies from TMDB."""
+    if category == "trending":
+        data = await tmdb_get(
+            "/trending/movie/day",
+            {
+                "language": "en-US",
+                "page": page,
+            },
+        )
+    elif category in {"popular", "top_rated", "upcoming", "now_playing"}:
+        data = await tmdb_get(
+            f"/movie/{category}",
+            {
+                "language": "en-US",
+                "page": page,
+            },
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid category. Use popular, top_rated, upcoming, now_playing, or trending.",
+        )
+
+    return await tmdb_cards_from_results(
+        data.get("results", []),
+        limit=limit,
+    )
+
+
 # =========================
 # TMDB SEARCH
 # =========================
