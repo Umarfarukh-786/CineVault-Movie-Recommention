@@ -712,34 +712,17 @@ elif st.session_state.view == "details":
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ── CAST ──
-    # Keep the raw API value for diagnostics, then normalize it before rendering.
-    raw_cast = data.get("cast")
-    cast_members = raw_cast if isinstance(raw_cast, list) else []
-    valid_cast_members = [member for member in cast_members if isinstance(member, dict)]
-
-    st.markdown("<div class='section-label'>Cast</div>", unsafe_allow_html=True)
-    st.caption(f"DEBUG — Cast count received: {len(cast_members)}")
-
-    # This expander helps identify an API/deployment mismatch without cluttering the page.
-    with st.expander("Cast diagnostics", expanded=False):
-        st.write("Movie:", data.get("title", "Unknown"))
-        st.write("Cast field type:", type(raw_cast).__name__)
-        st.write("Valid cast entries:", len(valid_cast_members))
-        st.write("API response fields:", ", ".join(sorted(str(key) for key in data.keys())))
-
-    if valid_cast_members:
+    cast_members = data.get("cast") or []
+    if cast_members:
+        st.markdown("<div class='section-label'>Cast</div>", unsafe_allow_html=True)
         cast_cols = st.columns(6, gap="medium")
-        for cast_index, member in enumerate(valid_cast_members[:12]):
+        for cast_index, member in enumerate(cast_members[:12]):
+            if not isinstance(member, dict):
+                continue
             with cast_cols[cast_index % 6]:
                 profile_url = clean_image_url(member.get("profile_url"))
                 if profile_url:
-                    try:
-                        st.image(profile_url, use_container_width=True)
-                    except Exception:
-                        st.markdown(
-                            "<div class='no-poster' style='aspect-ratio:2/3;font-size:1.5rem;'>🎭</div>",
-                            unsafe_allow_html=True,
-                        )
+                    st.image(profile_url, use_container_width=True)
                 else:
                     st.markdown(
                         "<div class='no-poster' style='aspect-ratio:2/3;font-size:1.5rem;'>🎭</div>",
@@ -752,8 +735,6 @@ elif st.session_state.view == "details":
                     f"<div style='color:#aaa;font-size:.72rem;margin-top:3px;'>{character}</div>",
                     unsafe_allow_html=True,
                 )
-    else:
-        st.info("No cast members were received for this movie. Open Cast diagnostics above to inspect the API response.")
 
     st.divider()
 
