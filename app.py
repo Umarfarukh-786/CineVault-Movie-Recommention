@@ -24,34 +24,6 @@ if "search_query" not in st.session_state:
     st.session_state.search_query = ""
 
 
-# Reset the Streamlit page scroll after navigating to a different movie.
-# This runs on the rerun triggered by goto_details().
-if st.session_state.pop("scroll_details_to_top", False):
-    st.components.v1.html(
-        """
-        <script>
-        try {
-            const parentWindow = window.parent;
-            parentWindow.scrollTo({ top: 0, left: 0, behavior: "instant" });
-
-            const mainSection = parentWindow.document.querySelector("section.main");
-            if (mainSection) {
-                mainSection.scrollTo({ top: 0, left: 0, behavior: "instant" });
-            }
-
-            const appView = parentWindow.document.querySelector("[data-testid='stAppViewContainer']");
-            if (appView) {
-                appView.scrollTo({ top: 0, left: 0, behavior: "instant" });
-            }
-        } catch (error) {
-            console.warn("CineVault could not reset scroll position:", error);
-        }
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
 # CINEMATIC STYLES
 st.markdown(
     """
@@ -783,3 +755,58 @@ elif st.session_state.view == "details":
 
     else:
         st.warning("No title available to compute recommendations.")
+
+    # Run this AFTER all detail/recommendation content has been emitted.
+    # Streamlit can restore the previous scroll position after an early script,
+    # so retry briefly while the new page layout settles.
+    if st.session_state.pop("scroll_details_to_top", False):
+        st.components.v1.html(
+            """
+            <script>
+            (() => {
+                const resetScroll = () => {
+                    try {
+                        const w = window.parent;
+                        const d = w.document;
+
+                        w.scrollTo(0, 0);
+
+                        const selectors = [
+                            "section.main",
+                            "[data-testid='stMain']",
+                            "[data-testid='stAppViewContainer']",
+                            "[data-testid='stMainBlockContainer']",
+                            ".main"
+                        ];
+
+                        for (const selector of selectors) {
+                            const element = d.querySelector(selector);
+                            if (element) {
+                                element.scrollTop = 0;
+                                if (typeof element.scrollTo === "function") {
+                                    element.scrollTo({ top: 0, left: 0, behavior: "instant" });
+                                }
+                            }
+                        }
+
+                        if (d.scrollingElement) {
+                            d.scrollingElement.scrollTop = 0;
+                        }
+                    } catch (error) {
+                        console.warn("CineVault scroll reset failed:", error);
+                    }
+                };
+
+                // Run after Streamlit has completed layout and scroll restoration.
+                requestAnimationFrame(() => {
+                    resetScroll();
+                    setTimeout(resetScroll, 100);
+                    setTimeout(resetScroll, 350);
+                    setTimeout(resetScroll, 700);
+                });
+            })();
+            </script>
+            """,
+            height=1,
+            width=1,
+        )
