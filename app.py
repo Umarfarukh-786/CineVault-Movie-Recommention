@@ -23,6 +23,35 @@ if "selected_tmdb_id" not in st.session_state:
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
 
+
+# Reset the Streamlit page scroll after navigating to a different movie.
+# This runs on the rerun triggered by goto_details().
+if st.session_state.pop("scroll_details_to_top", False):
+    st.components.v1.html(
+        """
+        <script>
+        try {
+            const parentWindow = window.parent;
+            parentWindow.scrollTo({ top: 0, left: 0, behavior: "instant" });
+
+            const mainSection = parentWindow.document.querySelector("section.main");
+            if (mainSection) {
+                mainSection.scrollTo({ top: 0, left: 0, behavior: "instant" });
+            }
+
+            const appView = parentWindow.document.querySelector("[data-testid='stAppViewContainer']");
+            if (appView) {
+                appView.scrollTo({ top: 0, left: 0, behavior: "instant" });
+            }
+        } catch (error) {
+            console.warn("CineVault could not reset scroll position:", error);
+        }
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
 # CINEMATIC STYLES
 st.markdown(
     """
@@ -113,8 +142,10 @@ def goto_home():
 
 
 def goto_details(tmdb_id: int):
+    # Remember that navigation happened so the new detail view starts at the top.
     st.session_state.view = "details"
     st.session_state.selected_tmdb_id = int(tmdb_id)
+    st.session_state.scroll_details_to_top = True
     st.query_params["view"] = "details"
     st.query_params["id"] = str(int(tmdb_id))
     st.rerun()
