@@ -11,6 +11,8 @@ import bcrypt
 import httpx
 import numpy as np
 import pandas as pd
+import joblib
+from scipy.sparse import load_npz
 from sklearn.feature_extraction.text import TfidfVectorizer
 import pymysql
 from dotenv import load_dotenv
@@ -126,10 +128,11 @@ def init_db():
 # LOCAL MOVIE DATASET / RECOMMENDATION MODEL
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MOVIES_CSV_PATH = os.getenv(
-    "MOVIES_CSV_PATH",
-    os.path.join(BASE_DIR, "movies_metadata.csv"),
-)
+MODEL_DIR = os.path.join(BASE_DIR, "movie_model")
+
+MOVIES_PKL_PATH = os.path.join(MODEL_DIR, "movies_metadata.pkl")
+TFIDF_MATRIX_PATH = os.path.join(MODEL_DIR, "tfidf_matrix.npz")
+TFIDF_VECTORIZER_PATH = os.path.join(MODEL_DIR, "tfidf_vectorizer.joblib")
 
 movies_df: Optional[pd.DataFrame] = None
 movie_vectorizer: Optional[TfidfVectorizer] = None
@@ -420,65 +423,63 @@ def movie_text(row: pd.Series) -> str:
 
 
 def load_movie_dataset() -> None:
-    """Load the CSV model once, on the first request that needs it."""
+    """Load the prebuilt movie model only once, when first needed."""
     global movies_df, movie_vectorizer, movie_tfidf_matrix
 
-    if movies_df is not None and movie_vectorizer is not None and movie_tfidf_matrix is not None:
+    if (
+        movies_df is not None
+        and movie_vectorizer is not None
+        and movie_tfidf_matrix is not None
+    ):
         return
 
     with MOVIE_MODEL_LOAD_LOCK:
-        # Another request may have completed loading while this request waited.
-        if movies_df is not None and movie_vectorizer is not None and movie_tfidf_matrix is not None:
+        if (
+            movies_df is not None
+            and movie_vectorizer is not None
+            and movie_tfidf_matrix is not None
+        ):
             return
+
         _load_movie_dataset_unlocked()
 
 
 def _load_movie_dataset_unlocked() -> None:
-    """Read the CSV and build the reusable TF-IDF model."""
+    """Load the prebuilt dataset, sparse TF-IDF matrix, and vectorizer."""
     global movies_df, movie_vectorizer, movie_tfidf_matrix
     global MOVIE_ID_TO_IDX, TITLE_TO_INDICES
 
-    if not os.path.isfile(MOVIES_CSV_PATH):
+    required_files = [
+        MOVIES_PKL_PATH,
+        TFIDF_MATRIX_PATH,
+        TFIDF_VECTORIZER_PATH,
+    ]
+
+    for file_path in required_files:
+        if not os.path.isfile(file_path):
+            raise RuntimeError(f"Required movie model file not found: {file_path}")
+
+    print("Loading prebuilt movie model...")
+
+    data = pd.read_pickle(MOVIES_PKL_PATH)
+    matrix = load_npz(TFIDF_MATRIX_PATH)
+    vectorizer = joblib.load(TFIDF_VECTORIZER_PATH)
+
+    if len(data) != matrix.shape[0]:
         raise RuntimeError(
-            f"Movie dataset not found: {MOVIES_CSV_PATH}. "
-            "Place movies_metadata.csv beside main.py or set MOVIES_CSV_PATH."
+            "Movie dataset row count does not match the TF-IDF matrix."
         )
 
-    data = pd.read_csv(MOVIES_CSV_PATH, low_memory=False)
-    required = {"id", "title", "overview", "genres"}
-    missing = required.difference(data.columns)
-    if missing:
-        raise RuntimeError(f"Movie dataset is missing required columns: {sorted(missing)}")
+    if "_genre_ids" not in data.columns:
+        raise RuntimeError(
+            "The saved movie dataset is missing the _genre_ids column."
+        )
 
-    data = data.copy()
-    data["id"] = pd.to_numeric(data["id"], errors="coerce")
-    data = data.dropna(subset=["id", "title"])
-    data["id"] = data["id"].astype("int64")
-    data["title"] = data["title"].fillna("").astype(str).str.strip()
-    data["overview"] = data["overview"].fillna("").astype(str)
-    if "tagline" not in data.columns:
-        data["tagline"] = ""
-    else:
-        data["tagline"] = data["tagline"].fillna("").astype(str)
-    data = data[data["title"] != ""]
+    id_to_idx = {
+        int(movie_id): idx
+        for idx, movie_id in enumerate(data["id"].tolist())
+    }
 
-    # The source has repeated IDs; keep the first usable row for each TMDB ID.
-    data["_overview_length"] = data["overview"].str.len()
-    data = data.sort_values("_overview_length", ascending=False)
-    data = data.drop_duplicates(subset=["id"], keep="first").reset_index(drop=True)
-    data["_genre_ids"] = data["genres"].apply(genre_ids_from_value)
-    data["_text"] = data.apply(movie_text, axis=1)
-
-    vectorizer = TfidfVectorizer(
-        stop_words="english",
-        ngram_range=(1, 2),
-        min_df=2,
-        max_features=40000,
-        sublinear_tf=True,
-    )
-    matrix = vectorizer.fit_transform(data["_text"].tolist())
-
-    id_to_idx = {int(movie_id): idx for idx, movie_id in enumerate(data["id"].tolist())}
     title_to_indices: Dict[str, List[int]] = {}
     for idx, title in enumerate(data["title"].tolist()):
         title_to_indices.setdefault(normalize_title(title), []).append(idx)
@@ -488,8 +489,9 @@ def _load_movie_dataset_unlocked() -> None:
     movie_tfidf_matrix = matrix
     MOVIE_ID_TO_IDX = id_to_idx
     TITLE_TO_INDICES = title_to_indices
+
     print(
-        f"Movie CSV loaded: {len(data)} unique TMDB IDs; "
+        f"Prebuilt movie model loaded: {len(data)} movies; "
         f"TF-IDF matrix shape: {matrix.shape}."
     )
 
@@ -975,4 +977,3 @@ if __name__ == "__main__":
         port=8000,
         reload=True,
     )
-
