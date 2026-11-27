@@ -22,10 +22,6 @@ if "selected_tmdb_id" not in st.session_state:
     st.session_state.selected_tmdb_id = None
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
-if "home_page" not in st.session_state:
-    st.session_state.home_page = 1
-if "last_home_category" not in st.session_state:
-    st.session_state.last_home_category = "trending"
 
 # CINEMATIC STYLES
 st.markdown(
@@ -70,7 +66,7 @@ hr{border-color:var(--line)!important}
 .movie-card-body{padding:.55rem .65rem .35rem;min-height:68px}
 .movie-card-title{font-size:.82rem;font-weight:700;line-height:1.35;color:#f5f5f5;min-height:2.5em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .movie-card-rating{font-size:.74rem;color:#f5c518;margin-top:.3rem;font-weight:700}
-.no-poster{background:linear-gradient(135deg,#292929,#101010);display:flex;align-items:center;justify-content:center;text-align:center;font-size:2.3rem;aspect-ratio:2/3;color:#aaa}.no-poster small{font-size:.72rem;letter-spacing:.04em}
+.no-poster{background:linear-gradient(135deg,#292929,#101010);display:flex;align-items:center;justify-content:center;font-size:2.3rem;aspect-ratio:2/3}
 .new-badge{position:absolute;top:9px;right:9px;background:var(--red);color:white;padding:3px 7px;border-radius:3px;font-size:.62rem;font-weight:800;z-index:2}
 .detail-card{background:linear-gradient(145deg,#1b1b1b,#101010);border:1px solid var(--line);border-radius:14px;padding:1.6rem;box-shadow:0 18px 50px rgba(0,0,0,.35)}
 .detail-title{font-family:'Oswald',sans-serif;font-size:clamp(2rem,4vw,3.2rem);font-weight:700;line-height:1.08;color:#fff}
@@ -213,6 +209,64 @@ def cached_trailer_id(title: str):
         return None
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_valid_poster_url(url: str):
+    """Return a poster URL only when the remote image actually responds."""
+    if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+        return None
+    try:
+        response = requests.get(url, timeout=(5, 10), stream=True)
+        content_type = response.headers.get("Content-Type", "").lower()
+        valid = response.ok and content_type.startswith("image/")
+        response.close()
+        return url if valid else None
+    except requests.RequestException:
+        return None
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_tmdb_poster_for_title(title: str):
+    """Look up a fresh poster through the CineVault TMDB search endpoint."""
+    try:
+        data, error = api_get_json("/tmdb/search", params={"query": title})
+        if error or not isinstance(data, dict):
+            return None
+
+        results = data.get("results") or []
+        wanted = title.strip().casefold()
+
+        # Prefer an exact title match with a poster; otherwise use the first
+        # result that actually has a poster path.
+        for movie in results:
+            movie_title = str(movie.get("title") or "").strip().casefold()
+            poster = clean_image_url(movie.get("poster_url") or movie.get("poster_path"))
+            if movie_title == wanted and poster:
+                return poster
+
+        for movie in results:
+            poster = clean_image_url(movie.get("poster_url") or movie.get("poster_path"))
+            if poster:
+                return poster
+        return None
+    except Exception as exc:
+        logger.warning("TMDB poster lookup failed for %r: %s", title, exc)
+        return None
+
+
+def resolve_recommendation_posters(cards):
+    """Validate recommendation posters and replace broken ones with TMDB matches."""
+    resolved = []
+    for card in cards:
+        item = dict(card)
+        poster = clean_image_url(item.get("poster_url"))
+        if poster and cached_valid_poster_url(poster):
+            item["poster_url"] = poster
+        else:
+            item["poster_url"] = cached_tmdb_poster_for_title(item.get("title", ""))
+        resolved.append(item)
+    return resolved
+
+
 def safe_int(value: Any):
     try:
         return int(value)
@@ -301,10 +355,7 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
                 if isinstance(poster, str) and poster.startswith(("https://", "http://")):
                     st.image(poster, use_container_width=True)
                 else:
-                    st.markdown(
-                        "<div class='no-poster'><span>🎬<br><small>No poster available</small></span></div>",
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown("<div class='no-poster'>🎬</div>", unsafe_allow_html=True)
 
                 rating_html = f"<div class='movie-card-rating'>★ {rating}</div>" if rating and rating != "N/A" else ""
                 st.markdown(
@@ -408,9 +459,6 @@ with st.sidebar:
         index=0,
         label_visibility="collapsed",
     )
-    if home_category != st.session_state.last_home_category:
-        st.session_state.home_page = 1
-        st.session_state.last_home_category = home_category
     st.markdown(
         "<p style='color:#7a7060;font-size:0.72rem;letter-spacing:0.15em;text-transform:uppercase;margin:12px 0 6px;'>Columns</p>",
         unsafe_allow_html=True,
@@ -511,78 +559,54 @@ if st.session_state.view == "home":
         unsafe_allow_html=True,
     )
 
-    current_page = st.session_state.home_page
+    if "home_page" not in st.session_state:
+        st.session_state.home_page = 1
+    if "last_home_category" not in st.session_state:
+        st.session_state.last_home_category = home_category
+    if st.session_state.last_home_category != home_category:
+        st.session_state.home_page = 1
+        st.session_state.last_home_category = home_category
 
-    with st.spinner(f"Loading {cat_label.lower()} movies — page {current_page}…"):
-        paged_data, err = api_get_json(
+    with st.spinner("Loading the vault…"):
+        home_data, err = api_get_json(
             "/home/paged",
-            params={
-                "category": home_category,
-                "page": current_page,
-                "limit": 24,
-            },
+            params={"category": home_category, "page": st.session_state.home_page, "limit": 24},
         )
 
     if err:
         st.error(f"Home feed failed: {err}")
-        st.info(
-            "The updated /home/paged endpoint must be deployed in main.py "
-            "before this frontend version can load paginated movies."
-        )
+        st.stop()
+    if not isinstance(home_data, dict):
+        st.error("The paginated home feed returned an unexpected response.")
         st.stop()
 
-    if not isinstance(paged_data, dict):
-        st.error("The server returned an unexpected paginated movie response.")
-        st.stop()
-
-    home_cards = paged_data.get("results", [])
-    total_pages = safe_int(paged_data.get("total_pages")) or 1
-    total_results = safe_int(paged_data.get("total_results")) or 0
+    home_cards = home_data.get("results") or []
+    total_pages = int(home_data.get("total_pages") or 1)
+    total_results = int(home_data.get("total_results") or 0)
 
     if not home_cards:
-        st.info("No movies are available on this page. Please choose another category.")
+        st.info("No movies are available in this category right now. Please choose another category.")
         st.stop()
 
-    st.caption(
-        f"Page {current_page:,} of {total_pages:,} · "
-        f"{total_results:,} movies available in this category"
-    )
+    st.caption(f"Page {st.session_state.home_page} of {total_pages:,} · {total_results:,} movies")
+    poster_grid(home_cards, cols=grid_cols, key_prefix=f"home_feed_{home_category}_{st.session_state.home_page}")
 
-    poster_grid(
-        home_cards,
-        cols=grid_cols,
-        key_prefix=f"home_feed_{home_category}_{current_page}",
-    )
-
-    # Pagination controls
     prev_col, page_col, next_col = st.columns([1, 2, 1])
     with prev_col:
-        if st.button(
-            "← Previous",
-            key="home_previous_page",
-            disabled=current_page <= 1,
-            use_container_width=True,
-        ):
-            st.session_state.home_page = current_page - 1
+        if st.button("← Previous", disabled=st.session_state.home_page <= 1, key="home_previous"):
+            st.session_state.home_page -= 1
             st.rerun()
-
     with page_col:
         st.markdown(
-            f"<div style='text-align:center;padding:.55rem;color:#bdbdbd;'>"
-            f"Page <b>{current_page}</b> / {total_pages}</div>",
+            f"<div style='text-align:center;padding:.55rem 0;'>Page {st.session_state.home_page} / {total_pages}</div>",
             unsafe_allow_html=True,
         )
-
     with next_col:
-        if st.button(
-            "Next →",
-            key="home_next_page",
-            disabled=current_page >= total_pages,
-            use_container_width=True,
-        ):
-            st.session_state.home_page = current_page + 1
+        if st.button("Next →", disabled=st.session_state.home_page >= total_pages, key="home_next"):
+            st.session_state.home_page += 1
             st.rerun()
 
+# ==========================================================
 # ENGINE CORE: VIEW DETAILS
 # ==========================================================
 elif st.session_state.view == "details":
@@ -696,7 +720,7 @@ elif st.session_state.view == "details":
                 unsafe_allow_html=True
             )
 
-            similar_cards = normalize_recommendations(tfidf_items)
+            similar_cards = resolve_recommendation_posters(normalize_recommendations(tfidf_items))
 
             if similar_cards:
                 poster_grid(
@@ -712,7 +736,7 @@ elif st.session_state.view == "details":
                 unsafe_allow_html=True
             )
 
-            genre_cards = normalize_recommendations(genre_items)
+            genre_cards = resolve_recommendation_posters(normalize_recommendations(genre_items))
 
             if genre_cards:
                 poster_grid(
