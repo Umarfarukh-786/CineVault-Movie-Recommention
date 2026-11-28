@@ -184,6 +184,7 @@ class TMDBMovieDetails(BaseModel):
     backdrop_url: Optional[str] = None
     genres: List[dict] = Field(default_factory=list)
     cast: List[dict] = Field(default_factory=list)
+    crew: List[dict] = Field(default_factory=list)
 
 
 class TFIDFRecItem(BaseModel):
@@ -347,6 +348,22 @@ async def tmdb_movie_details(movie_id: int) -> TMDBMovieDetails:
             "profile_url": make_img_url(person.get("profile_path")),
         })
 
+    crew = []
+    seen_crew = set()
+    for person in (credits.get("crew") or []):
+        name = person.get("name")
+        job = person.get("job") or person.get("department") or "Crew"
+        if not name or (name, job) in seen_crew:
+            continue
+        seen_crew.add((name, job))
+        crew.append({
+            "name": name,
+            "job": job,
+            "profile_url": make_img_url(person.get("profile_path")),
+        })
+        if len(crew) >= 8:
+            break
+
     return TMDBMovieDetails(
         tmdb_id=int(data["id"]),
         title=data.get("title") or "",
@@ -356,6 +373,7 @@ async def tmdb_movie_details(movie_id: int) -> TMDBMovieDetails:
         backdrop_url=make_img_url(data.get("backdrop_path")),
         genres=data.get("genres") or [],
         cast=cast,
+        crew=crew,
     )
 
 

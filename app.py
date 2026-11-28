@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import html
 import logging
 import os
@@ -33,22 +34,60 @@ st.markdown(
 *,*::before,*::after{box-sizing:border-box}
 html,body,[class*="css"]{font-family:'DM Sans',sans-serif}
 .stApp{background:radial-gradient(ellipse at 50% -20%,rgba(229,9,20,.20),transparent 45%),linear-gradient(180deg,#080808 0%,#101010 55%,#080808 100%);color:var(--text)}
-.block-container{max-width:1500px;padding-top:1rem;padding-bottom:3rem}
-[data-testid="stHeader"]{background:rgba(8,8,8,.88)}
+.block-container{max-width:1500px;padding-top:2rem;padding-bottom:3rem}
+/* Remove Streamlit's toolbar/header so it cannot overlap the CineVault brand */
+[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],[data-testid="stSidebarCollapsedControl"],
+[data-testid="stSidebar"],[data-testid="stSidebarNav"]{display:none!important}
+header{visibility:hidden!important;height:0!important}
+
 [data-testid="stSidebar"]{background:#090909;border-right:1px solid var(--line)}
 [data-testid="stSidebar"] *{color:var(--text)}
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:.7rem}
 .sidebar-title{font-family:'Oswald',sans-serif;font-size:1.65rem;font-weight:700;letter-spacing:.08em;color:#fff;margin:.5rem 0}
 .sidebar-title span{color:var(--red)}
 .sidebar-rule{height:1px;background:var(--line);margin:.5rem 0 1rem}
-.cinevault-hero{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.5rem 0 1.1rem;border-bottom:1px solid var(--line);margin-bottom:1.4rem}
-.cinevault-logo{font-family:'Oswald',sans-serif;font-size:2.15rem;font-weight:700;letter-spacing:.06em;color:#fff;line-height:1}
-.cinevault-logo span{color:var(--red)}
-.cinevault-tagline{color:#bdbdbd;font-size:.82rem;letter-spacing:.04em;text-align:right}
-.hero-panel{position:relative;overflow:hidden;border-radius:16px;min-height:235px;padding:2rem;background:linear-gradient(90deg,rgba(0,0,0,.94) 0%,rgba(0,0,0,.74) 52%,rgba(0,0,0,.25) 100%),radial-gradient(ellipse at 85% 50%,rgba(229,9,20,.35),transparent 55%),linear-gradient(135deg,#292929,#101010);border:1px solid rgba(255,255,255,.09);display:flex;flex-direction:column;justify-content:center;margin:.4rem 0 1.5rem}
-.hero-kicker{color:#ff5a61;font-size:.72rem;font-weight:800;letter-spacing:.22em;text-transform:uppercase;margin-bottom:.65rem}
-.hero-heading{font-family:'Oswald',sans-serif;font-size:clamp(2rem,5vw,3.5rem);font-weight:700;line-height:1.04;color:#fff;max-width:720px}
-.hero-copy{color:#c5c5c5;font-size:.95rem;max-width:570px;margin-top:.75rem;line-height:1.6}
+.cinevault-hero{position:relative;display:flex;align-items:center;justify-content:space-between;gap:1.2rem;padding:1.05rem 1.35rem;margin:0 0 1.35rem;border:1px solid rgba(255,255,255,.10);border-radius:18px;background:linear-gradient(110deg,rgba(255,255,255,.075),rgba(255,255,255,.018) 58%,rgba(229,9,20,.09));backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:0 12px 38px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.08);overflow:hidden}
+.cinevault-hero:after{content:"";position:absolute;right:12%;top:-90px;width:270px;height:180px;background:rgba(229,9,20,.15);filter:blur(75px);pointer-events:none}
+.cinevault-logo{font-family:'Oswald',sans-serif;font-size:2.35rem;font-weight:700;letter-spacing:.075em;color:#fff;line-height:1;text-shadow:0 4px 22px rgba(0,0,0,.35)}
+.cinevault-logo span{color:#f32635}
+.cinevault-tagline{color:#d2d2d7;font-size:.8rem;letter-spacing:.055em;text-align:right}
+.home-hero-panel{position:relative;isolation:isolate;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:25px;min-height:270px;padding:clamp(1.5rem,4vw,3.2rem);margin:.2rem 0 1.5rem;background:radial-gradient(ellipse at 82% 40%,rgba(229,9,20,.24),transparent 37%),radial-gradient(ellipse at 100% 100%,rgba(115,22,36,.2),transparent 44%),linear-gradient(115deg,#171719 0%,#101012 52%,#190d10 100%);box-shadow:0 24px 65px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.08)}
+.home-hero-panel:before{content:"";position:absolute;z-index:-1;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.25),transparent 75%);pointer-events:none}
+.home-hero-panel:after{content:"C";position:absolute;z-index:-1;right:5%;top:50%;transform:translateY(-56%);font-family:'Oswald',sans-serif;font-size:clamp(13rem,28vw,24rem);font-weight:700;line-height:.8;color:rgba(255,255,255,.025);text-shadow:0 0 65px rgba(229,9,20,.12);pointer-events:none}
+.home-hero-kicker{display:inline-flex;align-items:center;gap:.55rem;color:#ff777e;font-size:.68rem;font-weight:800;letter-spacing:.24em;text-transform:uppercase;margin-bottom:.85rem}
+.home-hero-kicker:before{content:"";width:25px;height:2px;background:#ed2935;border-radius:4px}
+.home-hero-title{font-family:'Oswald',sans-serif;font-size:clamp(2.35rem,5.3vw,4.5rem);font-weight:700;line-height:.98;letter-spacing:-.015em;color:#fff;max-width:790px;text-shadow:0 5px 28px rgba(0,0,0,.4)}
+.home-hero-title span{color:#f02a37}
+.home-hero-copy{color:#c5c5ca;font-size:.96rem;line-height:1.7;max-width:590px;margin-top:1rem}
+.home-search-label{color:#f0f0f2;font-size:.72rem;font-weight:800;letter-spacing:.17em;text-transform:uppercase;margin:.15rem 0 .4rem}
+.home-search-row{position:relative;max-width:900px;margin-top:1.25rem;padding:.45rem;border:1px solid rgba(255,255,255,.17);border-radius:15px;background:rgba(8,8,10,.58);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 14px 35px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08)}
+.home-search-row [data-testid="stTextInput"]{margin:0}
+.home-search-row [data-testid="stTextInput"] label{display:none}
+.home-search-row [data-testid="stTextInput"] input{height:3.25rem!important;background:rgba(255,255,255,.055)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:10px!important;padding:0 1.1rem!important;color:#fff!important;font-size:1rem!important;box-shadow:none!important}
+.home-search-row [data-testid="stTextInput"] input:focus{border-color:rgba(255,95,105,.75)!important;box-shadow:0 0 0 3px rgba(229,9,20,.14)!important}
+.home-search-row [data-testid="stTextInput"] input::placeholder{color:#92929a!important}
+@media(max-width:700px){.cinevault-hero{padding:.9rem 1rem;align-items:flex-start;flex-direction:column}.cinevault-logo{font-size:2rem}.cinevault-tagline{text-align:left}.home-hero-panel{min-height:250px;border-radius:19px}.home-hero-title{font-size:2.45rem}.home-hero-panel:after{right:-4%;font-size:13rem}}
+/* Premium cast & crew rails */
+.people-section{position:relative;margin:2.1rem 0 2.35rem;padding:1.35rem 1.35rem 1.5rem;border:1px solid rgba(255,255,255,.095);border-radius:22px;background:linear-gradient(135deg,rgba(255,255,255,.075),rgba(255,255,255,.018) 48%,rgba(229,9,20,.045));backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:0 18px 55px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.07);overflow:hidden}
+.people-section:before{content:"";position:absolute;inset:0 0 auto;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);pointer-events:none}
+.people-heading{display:flex;align-items:end;justify-content:space-between;gap:1rem;margin:0 0 1.2rem}
+.people-eyebrow{display:block;color:#ff6b72;font-size:.62rem;font-weight:800;letter-spacing:.2em;margin-bottom:.35rem}
+.people-heading h3{font-family:'Oswald',sans-serif;font-size:1.8rem;line-height:1;margin:0;color:#fff;letter-spacing:.015em}
+.people-count{color:#8f8f98;font-size:.65rem;letter-spacing:.13em;font-weight:700;white-space:nowrap}
+.people-rail{display:flex;gap:1rem;overflow-x:auto;overflow-y:hidden;padding:.25rem .1rem .8rem;scroll-snap-type:x mandatory;scrollbar-width:thin;scrollbar-color:rgba(229,9,20,.65) rgba(255,255,255,.06);-webkit-overflow-scrolling:touch}
+.people-rail::-webkit-scrollbar{height:5px}
+.people-rail::-webkit-scrollbar-track{background:rgba(255,255,255,.055);border-radius:20px}
+.people-rail::-webkit-scrollbar-thumb{background:linear-gradient(90deg,#8f0710,#ed2935);border-radius:20px}
+.people-card{position:relative;flex:0 0 154px;min-width:0;padding:1rem .8rem .95rem;text-align:center;border:1px solid rgba(255,255,255,.085);border-radius:17px;background:linear-gradient(155deg,rgba(255,255,255,.105),rgba(255,255,255,.035) 55%,rgba(0,0,0,.16));box-shadow:0 9px 25px rgba(0,0,0,.2),inset 0 1px 0 rgba(255,255,255,.08);scroll-snap-align:start;transition:transform .28s ease,border-color .28s ease,background .28s ease}
+.people-card:hover{transform:translateY(-6px);border-color:rgba(255,91,100,.55);background:linear-gradient(155deg,rgba(229,9,20,.16),rgba(255,255,255,.06));box-shadow:0 16px 34px rgba(0,0,0,.36),0 0 24px rgba(229,9,20,.09)}
+.people-photo{position:relative;width:112px;height:112px;margin:0 auto .85rem;border-radius:50%;padding:3px;background:linear-gradient(145deg,#ff7b80,#8b1018 48%,rgba(255,255,255,.18));box-shadow:0 7px 24px rgba(0,0,0,.42),0 0 0 5px rgba(255,255,255,.025)}
+.people-photo img{display:block;width:100%;height:100%;object-fit:cover;object-position:center 25%;border-radius:50%;border:2px solid #171313}
+.people-photo-glow{position:absolute;inset:-5px;border-radius:50%;border:1px solid rgba(255,255,255,.10);pointer-events:none}
+.people-avatar-fallback{width:100%;height:100%;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 35% 25%,#4c2528,#171719 70%);color:#ff777e;font-size:2rem}
+.people-name{color:#fff;font-size:.9rem;font-weight:750;line-height:1.25;min-height:2.25em;display:flex;align-items:center;justify-content:center}
+.people-role{color:#a9a9b2;font-size:.76rem;line-height:1.35;margin-top:.35rem;min-height:2.3em}
+@media(max-width:700px){.people-section{padding:1rem .85rem 1.1rem;margin:1.4rem 0 1.7rem;border-radius:17px}.people-heading h3{font-size:1.5rem}.people-count{font-size:.56rem}.people-card{flex-basis:137px;padding:.85rem .65rem}.people-photo{width:96px;height:96px}.people-rail{gap:.75rem}}
 .section-label{font-family:'Oswald',sans-serif;font-size:1.45rem;font-weight:600;letter-spacing:.035em;color:#fff;margin:1.4rem 0 .85rem;display:flex;align-items:center;gap:.65rem}
 .section-label:before{content:'';width:4px;height:1.2em;background:var(--red);border-radius:4px}
 .stTextInput input{background:#202020!important;border:1px solid #373737!important;border-radius:7px!important;color:#fff!important;padding:.75rem 1rem!important;font-size:.95rem!important}
@@ -86,8 +125,107 @@ hr{border-color:var(--line)!important}
 .stAlert{background:#1b1b1b!important;border:1px solid var(--line)!important;color:#fff!important}
 .stCaption{color:var(--muted)!important}
 iframe{border-radius:10px}
-@media(max-width:768px){.cinevault-hero{align-items:flex-start;flex-direction:column}.cinevault-tagline{text-align:left}.hero-panel{padding:1.35rem;min-height:200px}.detail-card{padding:1.1rem}.movie-card:hover{transform:none}}
+
+/* Responsive discovery home */
+.home-intro{padding:.25rem 0 .6rem;color:#aaa;font-size:.9rem}
+.home-section{margin:1.5rem 0 2rem}
+.home-section-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.85rem}
+.home-section-title{font-family:'Oswald',sans-serif;font-size:1.35rem;font-weight:600;color:#fff;letter-spacing:.025em}
+.home-section-subtitle{color:#888;font-size:.72rem;margin-top:.15rem}
+.responsive-movie-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(142px,1fr));gap:14px 12px;align-items:start}
+.responsive-movie-card{position:relative;display:block;min-width:0;text-decoration:none!important;color:#fff!important;background:linear-gradient(145deg,rgba(255,255,255,.105),rgba(255,255,255,.025) 58%,rgba(229,9,20,.055));border:1px solid rgba(255,255,255,.11);border-radius:14px;overflow:hidden;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.07);transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
+.responsive-movie-card:hover{transform:translateY(-6px) scale(1.015);border-color:rgba(255,91,100,.58);box-shadow:0 18px 38px rgba(0,0,0,.48),0 0 25px rgba(229,9,20,.12)}
+.responsive-movie-card img{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;background:#202020}
+.responsive-movie-card .poster-fallback{aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#292929,#101010);font-size:2rem}
+.responsive-movie-card .poster-info{padding:10px 11px 12px;background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(0,0,0,.12))}
+.responsive-movie-card .poster-title{font-size:.78rem;line-height:1.3;font-weight:700;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.05em}
+.responsive-movie-card .poster-rating{font-size:.7rem;color:#f5c518;margin-top:4px}
+.home-section-rule{height:1px;background:rgba(255,255,255,.08);margin:1.4rem 0}
+@media(min-width:1500px){.responsive-movie-grid{grid-template-columns:repeat(8,minmax(0,1fr));gap:16px}}
+@media(min-width:1100px) and (max-width:1499px){.responsive-movie-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(min-width:769px) and (max-width:1099px){.responsive-movie-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(min-width:481px) and (max-width:768px){.responsive-movie-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}}
+@media(max-width:480px){.responsive-movie-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.home-section-title{font-size:1.18rem}.block-container{padding-left:.8rem;padding-right:.8rem}}
+@media(max-width:768px){.cinevault-hero{align-items:flex-start;flex-direction:column}.cinevault-tagline{text-align:left}.hero-panel{padding:1.35rem;min-height:200px}.detail-card{padding:1.1rem}.movie-card:hover,.responsive-movie-card:hover{transform:none}}
+
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+/* ── CINEMATIC BACKDROP + OVERLAPPING POSTER + TRAILER POPUP ── */
+.movie-hero-overlap{
+  position:relative;isolation:isolate;width:100%;min-height:590px;margin:0 0 2.2rem;
+  overflow:hidden;border-radius:20px;background:#080808;
+}
+.movie-hero-backdrop{
+  position:absolute;z-index:0;inset:0 0 74px;overflow:hidden;
+  background-image:var(--hero-image);background-size:cover;background-position:center 28%;
+  border-radius:20px 20px 0 0;
+}
+.movie-hero-overlap::after{
+  content:"";position:absolute;z-index:1;inset:0;pointer-events:none;border-radius:20px;
+  background:linear-gradient(180deg,rgba(0,0,0,.16) 0%,rgba(0,0,0,.08) 34%,rgba(0,0,0,.62) 62%,#080808 88%,#080808 100%),
+             linear-gradient(90deg,rgba(0,0,0,.16),transparent 72%);
+}
+.movie-hero-release,.movie-hero-bottom,.movie-hero-play-link{z-index:2}
+.movie-hero-release{
+  position:absolute;top:24px;right:24px;width:min(330px,36%);padding:15px 18px;border-radius:16px;
+  background:rgba(22,22,25,.58);border:1px solid rgba(255,255,255,.18);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 12px 35px rgba(0,0,0,.22);color:#fff;
+}
+.movie-hero-release small{display:block;color:#d0d0d0;font-size:.78rem;margin-bottom:5px}
+.movie-hero-release strong{display:block;font-size:1rem}
+.movie-hero-release span{display:block;color:#ff795f;font-size:.76rem;margin-top:7px}
+.movie-hero-play-link{
+  position:absolute;left:50%;top:39%;transform:translate(-50%,-50%);width:76px;height:76px;
+  display:flex;align-items:center;justify-content:center;border-radius:50%;
+  color:#fff!important;text-decoration:none!important;font-size:1.8rem;line-height:1;
+  background:rgba(12,12,14,.58);border:1px solid rgba(255,255,255,.3);
+  box-shadow:0 8px 35px rgba(0,0,0,.38);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  transition:transform .2s,background .2s,box-shadow .2s;
+}
+.movie-hero-play-link:hover{transform:translate(-50%,-50%) scale(1.09);background:rgba(255,75,55,.88);box-shadow:0 12px 40px rgba(255,70,55,.3)}
+.movie-hero-bottom{
+  position:absolute;left:0;right:0;bottom:0;display:grid;
+  grid-template-columns:230px minmax(260px,1fr) minmax(220px,330px);
+  gap:28px;align-items:end;padding:0 24px 0 3.5%;
+}
+.movie-hero-poster{width:100%;aspect-ratio:2/3;object-fit:cover;display:block;border-radius:13px;
+  border:1px solid rgba(255,255,255,.17);box-shadow:0 22px 55px rgba(0,0,0,.62)}
+.movie-hero-poster-placeholder{aspect-ratio:2/3;border-radius:13px;background:linear-gradient(145deg,#303039,#111);
+  display:flex;align-items:center;justify-content:center;font-size:3rem}
+.movie-hero-info{padding:0 0 12px;min-width:0}
+.movie-hero-kicker{color:#c2c2c2;font-size:.9rem;margin-bottom:5px}
+.movie-hero-title{font-size:clamp(1.9rem,3.1vw,3rem);font-weight:800;line-height:1.12;letter-spacing:-.035em;color:#fff;text-shadow:0 4px 24px #000}
+.movie-hero-facts{display:flex;flex-wrap:wrap;gap:24px;margin-top:24px}
+.movie-hero-fact small{display:block;color:#aaa;font-size:.76rem;margin-bottom:4px}
+.movie-hero-fact strong{color:#f3f3f3;font-size:.91rem}
+.movie-hero-actions{display:flex;flex-direction:column;gap:10px;padding-bottom:12px}
+.movie-hero-actions .action-pill{display:block;text-align:center;padding:13px 16px;border-radius:999px;color:#fff;text-decoration:none;
+  font-size:.88rem;font-weight:700;background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.15);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.movie-hero-actions .action-pill.primary{background:linear-gradient(105deg,#ff633d,#c92e49);border-color:rgba(255,255,255,.18);box-shadow:0 8px 25px rgba(218,53,57,.22)}
+@media(max-width:850px){
+ .movie-hero-overlap{min-height:540px}.movie-hero-backdrop{inset:0 0 65px}
+ .movie-hero-bottom{grid-template-columns:170px minmax(190px,1fr);gap:18px;padding:0 18px}
+ .movie-hero-actions{grid-column:1/-1;display:flex;padding:0 0 14px}
+ .movie-hero-release{top:14px;right:14px;width:min(270px,55%);padding:11px 13px}
+ .movie-hero-facts{gap:14px;margin-top:15px}.movie-hero-play-link{top:35%;width:68px;height:68px}
+}
+@media(max-width:560px){
+ .movie-hero-overlap{min-height:610px;margin-top:-.2rem}.movie-hero-backdrop{inset:0 0 225px;background-position:center top}
+ .movie-hero-bottom{grid-template-columns:112px minmax(0,1fr);gap:12px;padding:0 12px 12px}
+ .movie-hero-info{padding-bottom:8px}.movie-hero-kicker{font-size:.7rem}.movie-hero-title{font-size:1.35rem}
+ .movie-hero-facts{gap:9px 14px;margin-top:12px}.movie-hero-fact small{font-size:.64rem}.movie-hero-fact strong{font-size:.74rem}
+ .movie-hero-actions{grid-column:1/-1;gap:7px}.movie-hero-actions .action-pill{font-size:.73rem;padding:10px 7px}
+ .movie-hero-release{width:58%;top:10px;right:10px}.movie-hero-release small{font-size:.66rem}.movie-hero-release strong{font-size:.82rem}
+ .movie-hero-play-link{top:30%;width:60px;height:60px;font-size:1.5rem}
+}
+
+
+
+.movie-overview-panel{position:relative;margin:26px 0 30px;padding:25px 28px;border:1px solid rgba(255,255,255,.11);border-radius:18px;background:linear-gradient(120deg,rgba(255,255,255,.075),rgba(255,255,255,.025) 60%,rgba(190,35,55,.07));backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 14px 38px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.06)}
+.movie-overview-kicker{font-size:.66rem;letter-spacing:.22em;color:#ed6870;font-weight:800;margin-bottom:7px}
+.movie-overview-heading{font-size:1.45rem;font-weight:750;color:#fff;margin-bottom:9px}
+.movie-overview-copy{font-size:.96rem;line-height:1.85;color:rgba(245,245,245,.78);max-width:1000px;margin:0}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -212,7 +350,13 @@ def cached_trailer_id(title: str):
         logger.warning("Trailer lookup failed for %r: %s", title, exc)
         return None
 
+@st.dialog("Now Playing", width="large")
+def show_trailer_dialog(video_id: str):
+    """Open the selected YouTube trailer in a popup dialog."""
+    st.video(f"https://www.youtube.com/watch?v={video_id}", autoplay=True)
 
+
+@st.cache_data(ttl=86400, show_spinner=False)
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_valid_poster_url(url: str):
     """Return a poster URL only when the remote image actually responds."""
@@ -230,27 +374,27 @@ def cached_valid_poster_url(url: str):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def cached_tmdb_poster_for_title(title: str):
-    """Look up a fresh poster through the CineVault TMDB search endpoint."""
+    """Find a matching TMDB poster and verify that it is an actual image."""
     try:
         data, error = api_get_json("/tmdb/search", params={"query": title})
         if error or not isinstance(data, dict):
             return None
 
         results = data.get("results") or []
-        wanted = title.strip().casefold()
-
-        # Prefer an exact title match with a poster; otherwise use the first
-        # result that actually has a poster path.
-        for movie in results:
-            movie_title = str(movie.get("title") or "").strip().casefold()
-            poster = clean_image_url(movie.get("poster_url") or movie.get("poster_path"))
-            if movie_title == wanted and poster:
-                return poster
-
-        for movie in results:
-            poster = clean_image_url(movie.get("poster_url") or movie.get("poster_path"))
-            if poster:
-                return poster
+        wanted = str(title or "").strip().casefold()
+        ordered = sorted(
+            results,
+            key=lambda movie: (
+                str(movie.get("title") or "").strip().casefold() != wanted,
+                not bool(movie.get("poster_url") or movie.get("poster_path")),
+            ),
+        )
+        for movie in ordered:
+            candidate = clean_image_url(
+                movie.get("poster_url") or movie.get("poster_path")
+            )
+            if candidate and cached_valid_poster_url(candidate):
+                return candidate
         return None
     except Exception as exc:
         logger.warning("TMDB poster lookup failed for %r: %s", title, exc)
@@ -269,6 +413,56 @@ def resolve_recommendation_posters(cards):
             item["poster_url"] = cached_tmdb_poster_for_title(item.get("title", ""))
         resolved.append(item)
     return resolved
+
+
+def recover_missing_recommendation_posters(cards):
+    """Validate all recommendation images concurrently and recover broken posters."""
+    if not cards:
+        return cards
+
+    recovered = [dict(card) for card in cards]
+    normalized = {
+        index: clean_image_url(card.get("poster_url"))
+        for index, card in enumerate(recovered)
+    }
+
+    # A URL being present does not mean the image exists. Validate all URLs in
+    # parallel; cache results for 24 hours to keep subsequent page loads quick.
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        checks = {
+            index: pool.submit(cached_valid_poster_url, url)
+            for index, url in normalized.items() if url
+        }
+        for index, future in checks.items():
+            try:
+                recovered[index]["poster_url"] = future.result(timeout=15)
+            except Exception as exc:
+                logger.warning("Poster validation failed for %r: %s",
+                               recovered[index].get("title"), exc)
+                recovered[index]["poster_url"] = None
+
+    missing = [
+        index for index, card in enumerate(recovered)
+        if not card.get("poster_url")
+    ]
+
+    # Only dead/missing images are searched again. Searches also run concurrently.
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        lookups = {
+            index: pool.submit(
+                cached_tmdb_poster_for_title,
+                str(recovered[index].get("title") or "")
+            )
+            for index in missing
+        }
+        for index, future in lookups.items():
+            try:
+                recovered[index]["poster_url"] = future.result(timeout=20)
+            except Exception as exc:
+                logger.warning("Poster recovery failed for %r: %s",
+                               recovered[index].get("title"), exc)
+                recovered[index]["poster_url"] = None
+    return recovered
 
 
 def safe_int(value: Any):
@@ -373,23 +567,72 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
                 )
 
                 if tmdb_id is not None:
-                    # Native Streamlit button: avoids iframe sandbox restrictions.
-                    if st.button(
+                    # Use a native Streamlit button callback rather than a button
+                    # inside an HTML component iframe. This reliably updates the
+                    # app's session state and opens the selected movie details.
+                    st.button(
                         "▶ View details",
-                        key=f"{key_prefix}_{r}_{c}_{idx}_{tmdb_id}",
+                        key=f"{key_prefix}_details_{tmdb_id}_{r}_{c}_{idx}",
+                        on_click=goto_details,
+                        args=(tmdb_id,),
                         use_container_width=True,
-                    ):
-                        goto_details(tmdb_id)
+                    )
                 else:
                     st.button(
                         "▶ View details",
-                        key=f"{key_prefix}_{r}_{c}_{idx}_no_id",
+                        key=f"{key_prefix}_details_unavailable_{r}_{c}_{idx}",
                         disabled=True,
                         use_container_width=True,
                     )
 
                 st.markdown("</div></div>", unsafe_allow_html=True)
 
+
+
+def responsive_poster_section(cards, title, subtitle=None, limit=12):
+    """Render a responsive poster grid; CSS auto-adjusts columns to viewport width."""
+    if not cards:
+        return
+    safe_heading = html.escape(str(title))
+    subtitle_html = (
+        f"<div class='home-section-subtitle'>{html.escape(str(subtitle))}</div>"
+        if subtitle else ""
+    )
+    tiles = []
+    for movie in cards[:limit]:
+        if not isinstance(movie, dict):
+            continue
+        movie_id = safe_int(movie.get("tmdb_id") or movie.get("id"))
+        if movie_id is None:
+            continue
+        movie_title = html.escape(str(movie.get("title") or "Untitled"))
+        poster_url = clean_image_url(movie.get("poster_url"))
+        rating = movie.get("vote_average")
+        if poster_url:
+            poster_html = (
+                f"<img src='{html.escape(poster_url, quote=True)}' "
+                f"alt='{movie_title}' loading='lazy'>"
+            )
+        else:
+            poster_html = "<div class='poster-fallback'>🎬</div>"
+        rating_html = (
+            f"<div class='poster-rating'>★ {html.escape(str(rating))}</div>"
+            if rating not in (None, "", "N/A") else ""
+        )
+        tiles.append(
+            f"<a class='responsive-movie-card' href='?view=details&amp;id={movie_id}' target='_self' rel='nofollow'>"
+            f"{poster_html}<div class='poster-info'>"
+            f"<div class='poster-title'>{movie_title}</div>{rating_html}"
+            f"</div></a>"
+        )
+    if not tiles:
+        return
+    st.markdown(
+        f"<section class='home-section'><div class='home-section-head'>"
+        f"<div><div class='home-section-title'>{safe_heading}</div>{subtitle_html}</div>"
+        f"</div><div class='responsive-movie-grid'>{''.join(tiles)}</div></section>",
+        unsafe_allow_html=True,
+    )
 
 def to_cards_from_tfidf_items(tfidf_items):
     return normalize_recommendations(tfidf_items)
@@ -457,48 +700,18 @@ def parse_tmdb_search_to_cards(data, keyword: str, limit: int = 24):
 # ==========================================================
 # MAIN ROUTING LOGIC BLOCK
 # ==========================================================
-with st.sidebar:
-    st.markdown("<div class='sidebar-title'>CINE<span>VAULT</span> 🎬</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-rule'></div>", unsafe_allow_html=True)
+# Keep the discovery defaults in the main experience (no sidebar navigation).
+home_category = "trending"
+grid_cols = 6
 
-    if st.button("🏠 Home"):
-        goto_home()
-
-    st.markdown("---")
-    st.markdown("<div class='sidebar-rule'></div>", unsafe_allow_html=True)
-    st.markdown(
-        "<p style='color:#7a7060;font-size:0.72rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:6px;'>Home Feed</p>",
-        unsafe_allow_html=True,
-    )
-    home_category = st.selectbox(
-        "Category",
-        ["trending", "popular", "top_rated", "now_playing", "upcoming"],
-        index=0,
-        label_visibility="collapsed",
-    )
-    st.markdown(
-        "<p style='color:#7a7060;font-size:0.72rem;letter-spacing:0.15em;text-transform:uppercase;margin:12px 0 6px;'>Columns</p>",
-        unsafe_allow_html=True,
-    )
-    grid_cols = st.slider("Grid columns", 4, 8, 6, label_visibility="collapsed")
-
-    st.markdown(
-        """
-        <div style='position:absolute;bottom:24px;left:0;right:0;text-align:center;'>
-          <p style='color:#2a2a2a;font-size:0.65rem;letter-spacing:0.2em;'>CINEVAULT © 2026</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-# CINEMATIC HERO HEADER
+# CINEMATIC BRAND BAR
 st.markdown(
     """
     <div class='cinevault-hero'>
-      <a href='/?view=home' style='text-decoration:none;'>
+      <a href='/?view=home' style='text-decoration:none;position:relative;z-index:2;'>
         <div class='cinevault-logo'>CINE<span>VAULT</span></div>
       </a>
-      <div class='cinevault-tagline'>Your next favourite movie starts here.</div>
+      <div class='cinevault-tagline'>YOUR NEXT FAVOURITE MOVIE STARTS HERE</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -507,11 +720,11 @@ st.markdown(
 if st.session_state.view == "home":
     st.markdown(
         """
-        <div class='hero-panel'>
-          <div class='hero-kicker'>Unlimited stories · One destination</div>
-          <div class='hero-heading'>FIND YOUR NEXT<br>GREAT WATCH.</div>
-          <div class='hero-copy'>Explore trending hits, timeless favourites and hidden gems. Search the vault and discover what to watch next.</div>
-        </div>
+        <section class='home-hero-panel'>
+          <div class='home-hero-kicker'>THE CINEMA EXPERIENCE</div>
+          <div class='home-hero-title'>Find your next<br><span>great story.</span></div>
+          <div class='home-hero-copy'>Discover handpicked favourites, explore what's trending, and find a film that stays with you long after the credits roll.</div>
+        </section>
         """,
         unsafe_allow_html=True,
     )
@@ -520,15 +733,15 @@ if st.session_state.view == "home":
 # ENGINE CORE: VIEW HOME
 # ==========================================================
 if st.session_state.view == "home":
-    col_search, _, _ = st.columns([2, 1, 1])
-    with col_search:
-        typed = st.text_input(
-            "SEARCH",
-            placeholder="Search by title — Inception, Dune, The Godfather…",
-            label_visibility="visible",
-        )
-
-    st.divider()
+    st.markdown("<div class='home-search-label'>SEARCH THE VAULT</div><div class='home-search-row'>", unsafe_allow_html=True)
+    typed = st.text_input(
+        "Search movies",
+        placeholder="Search a title, actor, or a world you want to explore…",
+        label_visibility="collapsed",
+        key="cinevault_home_search",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div class='home-section-rule'></div>", unsafe_allow_html=True)
 
     # ── SEARCH MODE ──
     if typed.strip():
@@ -569,10 +782,39 @@ if st.session_state.view == "home":
 
         st.stop()
 
-    # ── HOME FEED ──
-    cat_label = home_category.replace("_", " ").title()
+    # ── MULTI-SECTION HOME DISCOVERY ──
+    home_sections = [
+        ("Top All Time", "top_rated", "Audience favourites across the years"),
+        ("Trending Now", "trending", "What people are watching right now"),
+        ("Popular Movies", "popular", "Popular picks from the movie vault"),
+        ("Now Playing", "now_playing", "Movies currently in theatres"),
+        ("Coming Soon", "upcoming", "Upcoming releases to look forward to"),
+    ]
+
+    for section_title, section_category, section_subtitle in home_sections:
+        with st.spinner(f"Loading {section_title.lower()}…"):
+            section_data, section_error = api_get_json(
+                "/home/paged",
+                params={"category": section_category, "page": 1, "limit": 12},
+            )
+        if section_error:
+            st.caption(f"{section_title} is temporarily unavailable.")
+            logger.warning("Home section %s failed: %s", section_category, section_error)
+            continue
+        # The deployed /home/paged endpoint returns a plain JSON list.
+        # normalize_recommendations supports both list and wrapped-object formats.
+        section_cards = normalize_recommendations(section_data)
+        responsive_poster_section(
+            section_cards,
+            section_title,
+            section_subtitle,
+            limit=12,
+        )
+
+    st.markdown("<div class='home-section-rule'></div>", unsafe_allow_html=True)
+    browse_label = home_category.replace("_", " ").title()
     st.markdown(
-        f"<div class='section-label'>{cat_label}</div>",
+        f"<div class='section-label'>Browse All · {html.escape(browse_label)}</div>",
         unsafe_allow_html=True,
     )
 
@@ -584,30 +826,34 @@ if st.session_state.view == "home":
         st.session_state.home_page = 1
         st.session_state.last_home_category = home_category
 
-    with st.spinner("Loading the vault…"):
+    page_size = 20  # TMDB's standard page size used by the deployed backend.
+    with st.spinner("Loading more movies…"):
         home_data, err = api_get_json(
             "/home/paged",
-            params={"category": home_category, "page": st.session_state.home_page, "limit": 20},
+            params={"category": home_category, "page": st.session_state.home_page, "limit": page_size},
         )
 
     if err:
         st.error(f"Home feed failed: {err}")
         st.stop()
 
-    # The current FastAPI endpoint returns a plain JSON list, not an object
-    # containing results/total_pages. Normalize that list for the movie cards.
+    # The current FastAPI /home/paged endpoint returns a plain JSON list,
+    # rather than {"results": [...], "total_pages": ...}.
     home_cards = normalize_recommendations(home_data)
     if not home_cards:
         st.info("No movies are available in this category right now. Please choose another category.")
         st.stop()
 
-    # TMDB returns 20 movies per page. If fewer than 20 arrive, this is the
-    # final page. The API currently does not expose total_pages metadata.
-    page_size = 20
+    # The list response has no pagination metadata. A full page indicates
+    # that another page may exist; a shorter page is the final page.
     has_next_page = len(home_cards) >= page_size
-
     st.caption(f"Page {st.session_state.home_page} · {len(home_cards)} movies")
-    poster_grid(home_cards, cols=grid_cols, key_prefix=f"home_feed_{home_category}_{st.session_state.home_page}")
+    responsive_poster_section(
+        home_cards,
+        f"{browse_label} · Page {st.session_state.home_page}",
+        "Continue exploring the full catalogue",
+        limit=page_size,
+    )
 
     prev_col, page_col, next_col = st.columns([1, 2, 1])
     with prev_col:
@@ -649,92 +895,133 @@ elif st.session_state.view == "details":
         st.error(f"Could not load details: {err or 'The server returned invalid movie details.'}")
         st.stop()
 
-    # ── BACKDROP ──
+    # ── FETCH TRAILER BEFORE BUILDING THE HERO ──
+    title = (data.get("title") or "").strip()
+    with st.spinner("Finding the official trailer..."):
+        video_id = cached_trailer_id(title) if title else None
+
+    # ── OVERLAPPING CINEMATIC HERO WITH POSTER + CLICK-TO-PLAY TRAILER POPUP ──
     backdrop_url = clean_image_url(data.get("backdrop_url"))
-    if backdrop_url:
-        st.markdown("<div class='backdrop-wrap'>", unsafe_allow_html=True)
-        st.image(backdrop_url, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    poster_url = clean_image_url(data.get("poster_url"))
+    safe_detail_title = html.escape(str(data.get("title") or "Untitled"))
+    release_date = str(data.get("release_date") or "")
+    release_year = release_date[:4] if release_date else "Movie"
+    genres = [
+        str(g.get("name", "")) for g in (data.get("genres") or [])
+        if isinstance(g, dict) and g.get("name")
+    ]
+    rating = data.get("vote_average")
+    genre_text = " · ".join(genres[:3]) if genres else "Movie"
+    rating_text = f"★ {html.escape(str(rating))}" if rating not in (None, "") else ""
+    safe_backdrop = html.escape(backdrop_url or "", quote=True)
+    bg_style = (
+        f"--hero-image:url('{safe_backdrop}');" if safe_backdrop
+        else "--hero-image:linear-gradient(135deg,#303039,#080808);"
+    )
+    poster_markup = (
+        f"<img class='movie-hero-poster' src='{html.escape(poster_url, quote=True)}' alt='{safe_detail_title} poster'>"
+        if poster_url else "<div class='movie-hero-poster-placeholder'>🎬</div>"
+    )
+    release_markup = ""
+    if release_date:
+        release_markup = (
+            "<div class='movie-hero-release'>"
+            "<small>Release Date</small>"
+            f"<strong>{html.escape(release_date)}</strong>"
+            f"<span>{rating_text or 'CineVault movie details'}</span>"
+            "</div>"
+        )
 
-    # ── POSTER + DETAILS ──
-    left, right = st.columns([1, 2.5], gap="large")
+    # Clicking this play control sets a one-time query flag; Streamlit reruns,
+    # consumes the flag, and opens the native dialog with the trailer autoplaying.
+    trailer_link = ""
+    if video_id:
+        current_id = int(tmdb_id)
+        trailer_link = (
+            f"<a class='movie-hero-play-link' aria-label='Play trailer' title='Play trailer' "
+            f"href='?view=details&amp;id={current_id}&amp;play_trailer=1'>▶</a>"
+        )
 
-    with left:
-        detail_poster_url = clean_image_url(data.get("poster_url"))
-        if detail_poster_url:
-            st.markdown("<div class='poster-3d-wrap'><div class='poster-3d'>", unsafe_allow_html=True)
-            st.image(detail_poster_url, use_container_width=True)
-            st.markdown("</div></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <section class="movie-hero-overlap" style="{bg_style}">
+          <div class="movie-hero-backdrop"></div>
+          {release_markup}
+          {trailer_link}
+          <div class="movie-hero-bottom">
+            <div>{poster_markup}</div>
+            <div class="movie-hero-info">
+              <div class="movie-hero-kicker">Movie &nbsp;•&nbsp; {html.escape(release_year)} &nbsp;•&nbsp; {html.escape(genre_text)}</div>
+              <div class="movie-hero-title">{safe_detail_title}</div>
+              <div class="movie-hero-facts">
+                <div class="movie-hero-fact"><small>Rating</small><strong>{rating_text or 'Not rated'}</strong></div>
+                <div class="movie-hero-fact"><small>Genres</small><strong>{html.escape(', '.join(genres[:2]) or 'Not available')}</strong></div>
+              </div>
+            </div>
+            <div class="movie-hero-actions">
+              <div class="action-pill primary">{'▶  Play Official Trailer' if video_id else 'Trailer unavailable'}</div>
+            </div>
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Consume the play request once, then launch the YouTube player in a popup.
+    play_trailer_requested = st.query_params.get("play_trailer") == "1"
+    if play_trailer_requested:
+        if "play_trailer" in st.query_params:
+            del st.query_params["play_trailer"]
+        if video_id:
+            show_trailer_dialog(str(video_id))
         else:
-            st.markdown("<div class='no-poster' style='height:360px;border-radius:16px;'>🎬</div>", unsafe_allow_html=True)
+            st.info("No YouTube trailer was found for this movie.")
 
-    with right:
-        st.markdown("<div class='detail-card'>", unsafe_allow_html=True)
+    if not video_id:
+        st.caption("No YouTube trailer was found for this movie. The movie backdrop and poster are shown instead.")
 
-        # Title
-        safe_detail_title = html.escape(str(data.get("title") or "Untitled"))
-        st.markdown(f"<div class='detail-title'>{safe_detail_title}</div>", unsafe_allow_html=True)
+    # Movie overview appears below the overlapping trailer hero.
+    overview_text = str(data.get("overview") or "").strip()
+    if not overview_text:
+        overview_text = str(data.get("tagline") or "").strip()
+    if not overview_text:
+        overview_text = "A synopsis for this film is not available yet. Explore its cast, crew and recommendations below."
+    overview = html.escape(overview_text)
+    st.markdown(
+        f"<section class='movie-overview-panel'>"
+        f"<div class='movie-overview-kicker'>THE STORY</div>"
+        f"<div class='movie-overview-heading'>Overview</div>"
+        f"<p class='movie-overview-copy'>{overview}</p>"
+        f"</section>",
+        unsafe_allow_html=True,
+    )
 
-        # Meta chips
-        release = (data.get("release_date") or "-")[:4]
-        genres  = [str(g.get("name", "")) for g in data.get("genres", []) if isinstance(g, dict) and g.get("name")]
-        rating  = data.get("vote_average")
+    # ── CAST & CREW: premium horizontal glass carousels ──
+    def render_people_rail(section_title, people, role_key, fallback_role, limit):
+        valid_people = [person for person in (people or [])[:limit] if isinstance(person, dict)]
+        if not valid_people:
+            return
+        cards = [f"<section class='people-section'><div class='people-heading'><div><span class='people-eyebrow'>THE PEOPLE BEHIND THE FILM</span><h3>{section_title}</h3></div><span class='people-count'>{len(valid_people):02d} MEMBERS</span></div><div class='people-rail'>"]
+        for person in valid_people:
+            person_name = html.escape(str(person.get("name") or "Unknown"))
+            role = html.escape(str(person.get(role_key) or fallback_role))
+            image_url = clean_image_url(person.get("profile_url"))
+            if image_url:
+                portrait = f"<img src='{html.escape(image_url, quote=True)}' alt='{person_name}' loading='lazy'>"
+            else:
+                portrait = "<div class='people-avatar-fallback'>✦</div>"
+            cards.append(
+                "<article class='people-card'>"
+                f"<div class='people-photo'>{portrait}<span class='people-photo-glow'></span></div>"
+                f"<div class='people-name'>{person_name}</div>"
+                f"<div class='people-role'>{role}</div>"
+                "</article>"
+            )
+        cards.append("</div></section>")
+        st.markdown("".join(cards), unsafe_allow_html=True)
 
-        chips = ""
-        if release and release != "-":
-            chips += f"<span class='meta-chip'>{release}</span>"
-        if rating is not None and rating != "":
-            chips += f"<span class='meta-chip red'>★ {html.escape(str(rating))}</span>"
-        for g in genres:
-            chips += f"<span class='meta-chip'>{html.escape(g)}</span>"
-
-        st.markdown(f"<div class='detail-meta'>{chips}</div>", unsafe_allow_html=True)
-        st.markdown("<div class='detail-divider'></div>", unsafe_allow_html=True)
-
-        # Overview
-        overview = html.escape(str(data.get("overview") or "No overview available."))
-        st.markdown(f"<div class='detail-overview'>{overview}</div>", unsafe_allow_html=True)
-        
-        # Define variable ahead of target block checks to prevent NameError mapping anomalies
-        title = (data.get("title") or "").strip()
-
-        # ── TRAILER ADDITION ──
-        if title:
-            with st.spinner("Fetching trailer..."):
-                video_id = cached_trailer_id(title)
-            
-            if video_id:
-                st.markdown("<div class='detail-divider'></div>", unsafe_allow_html=True)
-                st.markdown("<p style='color:var(--gold); font-family:\"Bebas Neue\"; font-size:1.3rem; letter-spacing:1px;'>OFFICIAL TRAILER</p>", unsafe_allow_html=True)
-                st.video(f"https://www.youtube.com/watch?v={video_id}")
-        # ──────────────────────
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── CAST ──
-    cast_members = data.get("cast") or []
-    if cast_members:
-        st.markdown("<div class='section-label'>Cast</div>", unsafe_allow_html=True)
-        cast_cols = st.columns(6, gap="medium")
-        for cast_index, member in enumerate(cast_members[:12]):
-            if not isinstance(member, dict):
-                continue
-            with cast_cols[cast_index % 6]:
-                profile_url = clean_image_url(member.get("profile_url"))
-                if profile_url:
-                    st.image(profile_url, use_container_width=True)
-                else:
-                    st.markdown(
-                        "<div class='no-poster' style='aspect-ratio:2/3;font-size:1.5rem;'>🎭</div>",
-                        unsafe_allow_html=True,
-                    )
-                actor_name = html.escape(str(member.get("name") or "Unknown actor"))
-                character = html.escape(str(member.get("character") or ""))
-                st.markdown(
-                    f"<div class='movie-card-title'>{actor_name}</div>"
-                    f"<div style='color:#aaa;font-size:.72rem;margin-top:3px;'>{character}</div>",
-                    unsafe_allow_html=True,
-                )
+    render_people_rail("Cast", data.get("cast"), "character", "Cast", 12)
+    render_people_rail("Crew", data.get("crew"), "job", "Crew", 8)
 
     st.divider()
 
@@ -763,29 +1050,26 @@ elif st.session_state.view == "details":
                 unsafe_allow_html=True
             )
 
-            similar_cards = resolve_recommendation_posters(normalize_recommendations(tfidf_items))
+            similar_cards = recover_missing_recommendation_posters(normalize_recommendations(tfidf_items))
 
             if similar_cards:
-                poster_grid(
+                responsive_poster_section(
                     similar_cards,
-                    cols=grid_cols,
-                    key_prefix="details_tfidf"
+                    "Similar Films",
+                    subtitle="Because you enjoyed this movie",
+                    limit=12,
                 )
             else:
-                st.warning("No TF-IDF movie cards were generated.")
+                st.warning("No similar films were returned by the recommendation engine.")
 
-            st.markdown(
-                "<div class='section-label'>More Like This</div>",
-                unsafe_allow_html=True
-            )
-
-            genre_cards = resolve_recommendation_posters(normalize_recommendations(genre_items))
+            genre_cards = recover_missing_recommendation_posters(normalize_recommendations(genre_items))
 
             if genre_cards:
-                poster_grid(
+                responsive_poster_section(
                     genre_cards,
-                    cols=grid_cols,
-                    key_prefix="details_genre"
+                    "More Like This",
+                    subtitle="Explore more from the same genres",
+                    limit=12,
                 )
             else:
                 st.info("No genre recommendations found.")
