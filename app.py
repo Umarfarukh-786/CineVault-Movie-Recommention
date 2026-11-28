@@ -3,6 +3,7 @@ import html
 import logging
 import os
 from typing import Any
+from urllib.parse import quote_plus
 
 import requests
 import streamlit as st
@@ -225,6 +226,21 @@ iframe{border-radius:10px}
 .movie-overview-kicker{font-size:.66rem;letter-spacing:.22em;color:#ed6870;font-weight:800;margin-bottom:7px}
 .movie-overview-heading{font-size:1.45rem;font-weight:750;color:#fff;margin-bottom:9px}
 .movie-overview-copy{font-size:.96rem;line-height:1.85;color:rgba(245,245,245,.78);max-width:1000px;margin:0}
+
+/* Tickets On - movie-specific ticket platform links */
+.ticket-platform-panel{position:relative;margin:26px 0 30px;padding:22px 25px;border:1px solid rgba(255,255,255,.11);border-radius:20px;background:linear-gradient(115deg,rgba(255,255,255,.065),rgba(255,255,255,.018) 58%,rgba(100,65,160,.14));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 14px 38px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.06)}
+.ticket-platform-heading{font-size:1.12rem;font-weight:800;color:#f5f5f5;margin:0 0 15px}
+.ticket-platform-list{display:flex;flex-direction:column;gap:12px}
+.ticket-platform-link{display:flex;align-items:center;gap:13px;min-height:62px;padding:9px 12px;border:1px solid rgba(255,255,255,.075);border-radius:13px;background:rgba(0,0,0,.22);color:#f2f2f2!important;text-decoration:none!important;transition:background .2s,border-color .2s,transform .2s}
+.ticket-platform-link:hover{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.2);transform:translateY(-2px)}
+.ticket-platform-logo{width:48px;height:48px;flex:0 0 48px;display:grid;place-items:center;border-radius:11px;color:#fff;font-size:.78rem;font-weight:900;letter-spacing:-.04em;box-shadow:0 5px 16px rgba(0,0,0,.25)}
+.ticket-platform-logo.district{background:linear-gradient(145deg,#a82cff,#5a20c9)}
+.ticket-platform-logo.bms{background:#e93450;font-size:1rem}
+.ticket-platform-copy{min-width:0;flex:1}
+.ticket-platform-name{font-size:.98rem;font-weight:800;line-height:1.25}
+.ticket-platform-note{font-size:.82rem;color:#aeb0bb;margin-top:4px}
+.ticket-platform-arrow{font-size:1.35rem;color:#c9c9d1;padding:0 5px}
+@media(max-width:560px){.ticket-platform-panel{padding:18px 15px}.ticket-platform-logo{width:43px;height:43px;flex-basis:43px}.ticket-platform-name{font-size:.9rem}.ticket-platform-note{font-size:.75rem}}
 
 </style>
 """,
@@ -993,6 +1009,39 @@ elif st.session_state.view == "details":
         f"<div class='movie-overview-heading'>Overview</div>"
         f"<p class='movie-overview-copy'>{overview}</p>"
         f"</section>",
+        unsafe_allow_html=True,
+    )
+
+    # ── TICKETS ON: open the selected movie on ticket platforms ──
+    ticket_movie_query = quote_plus(title)
+    district_url = f"https://www.district.in/movies?query={ticket_movie_query}"
+    bookmyshow_url = f"https://in.bookmyshow.com/explore/movies?query={ticket_movie_query}"
+    safe_ticket_title = html.escape(title or "this movie")
+
+    st.markdown(
+        f"""
+        <section class="ticket-platform-panel">
+          <div class="ticket-platform-heading">Tickets On</div>
+          <div class="ticket-platform-list">
+            <a class="ticket-platform-link" href="{district_url}" target="_blank" rel="noopener noreferrer">
+              <span class="ticket-platform-logo district">district</span>
+              <span class="ticket-platform-copy">
+                <span class="ticket-platform-name">District</span>
+                <span class="ticket-platform-note">Find {safe_ticket_title} showtimes and tickets</span>
+              </span>
+              <span class="ticket-platform-arrow">↗</span>
+            </a>
+            <a class="ticket-platform-link" href="{bookmyshow_url}" target="_blank" rel="noopener noreferrer">
+              <span class="ticket-platform-logo bms">my</span>
+              <span class="ticket-platform-copy">
+                <span class="ticket-platform-name">BookMyShow</span>
+                <span class="ticket-platform-note">Find {safe_ticket_title} showtimes and tickets</span>
+              </span>
+              <span class="ticket-platform-arrow">↗</span>
+            </a>
+          </div>
+        </section>
+        """,
         unsafe_allow_html=True,
     )
 
